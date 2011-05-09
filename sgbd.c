@@ -16,126 +16,127 @@
 
 #include "sgbd.h"
 
-struct filesystem fs;
+struct filesystem filesystem;
+struct buffercache buffercache;
+static int vflag = 0;
 
-void *
-bc_alloc_ino(void)
+/* NEW STUFF */
+
+/*
+ * Return a metablock with at least one free inode. Pure.
+ */
+struct metablock *
+fs_any_free(void)
 {
-	struct frame		*fr;
-	struct metablock	*mb;
-	struct metainode	*mi;
-	int			 i;
+	struct metablock *mb;
+	int i, j;
 	
-	/* Search for a free inode in buffercache */
-	mi = bc_get_free_mi();
-	
-	/* If we have no free nodes in buffercache, swap */
-	if (mi == NULL) {
-		struct metablock *mb_out, *mb_in;
-		/* mb_in  = fs_any_free(); */
-		fr = bc_swapin(mb_in);
-		mi = fr_get_free_mi(fr);
-		if (mi == NULL)
-			errx(1, "bc_alloc_ino: still can't find a free mi");
+	/* Search for a free inode in filesystem */
+	for (i = 0; i < BLKNUM; i++) {
+		mb = &filesystem.fs_metablocks[i];
+		
+		for (j = 0; j < INONUM; j++) {
+			if (mb->mb_metainodes[j] == INODE_STA_FREE)
+				return (mb);
+		}
 	}
+	/* No free inodes, choke */
+	errno = ENOMEM;
+	err(1, "fs_any_free");
 	
-	/* Cool, now we know mi points to a valid metainode */
-	return (mi->mi_data);
-}
-
-void
-bc_free_ino(void *datum)
-{
-	/* TODO */
-	;
-}
-
-struct metainode *
-bc_get_free_mi(void)
-{
-	struct frame		*fr;
-	struct metainode	*mi;
-	int i;
-	
-	for (i = 0; i < FRAMENUM; i++) {
-		fr = &fs_frames[i];
-		/* Skip free frames */
-		if (fr_state == FR_STA_UNWIRED)
-			continue;
-
-		mi = fr_get_free_mi(fr);
-		if (mi != NULL)
-			return (mi);
-	}
-	
-	return (NULL);
+	return (NULL);    
 }
 
 struct frame *
-bc_swap(struct metablock *mb_in)
+bc_next_victim(void)
 {
-	struct frame *fr;
-	struct metainode *mi;
-	struct mb_out *mb_out
+	struct frame *fr, *fr_victim;
 	int i;
 	
-	/* mb_out = next_victim(); */
-	/* Sanity check */
-	if (!MBWIRED(mb_out))
-		errx(1, "bc_swap: mb_out is already unwired");
-	if (MBWIRED(mb_in))
-		errx(1, "bc_swap: mb_in is already wired");
-	
-	
-	/* Save frame to swap */
-	fr = mb_out->mb_fr;
-	mb_out->mb_fr = NULL;
-	/* Flush frame */
-	fr_flush(fr);
-	/* Wire in */
-	mb_in->mb_fr = fr;
-	fr->fr_state = FR_STA_UNWIRED;
-	fr->fr_mb = mb_in;
-	/* Load frame */
-	fr_load(fr);
-	fr->fr_state = FR_STA_WIRED;
-	/* Update timestamp */
-	fr_timestamp(fr);
-	/* Repoint metainodes data */
-	for (i = 0; i < INONUM; i++) {
-		mi = &mb_out->mb_metainodes[i];
-		mi->mi_data = NULL;
-		mi = &mb_in->mb_metainodes[i];
-		mi->mi_data = &fr->fr_data[i];
+	fr_victim = &buffercache.bc_frames[0];
+	for (i = 0; i < FRAMENUM; i++) {
+		fr = &buffercache.bc_frames[i];
+		/* We have a free frame, use it */
+		if (fr->fr_mb == NULL)
+			return (fr);
+		/* Search for the lowest timestamp (least recently used) */
+		if (timespeccmp(&fr->fr_timestamp, &fr_victim->fr_timestamp, <))
+			fr_victim = fr;
 	}
+	
+	return (fr_victim);
+}
+
+struct frame *
+bc_swap(struct metablock *mb)
+{
+	struct frame *fr;
+	
+	/* Search for a possible victim */
+	fr = bc_next_victim();
+	/* If the frame is wired, flush and unwire */
+	if (fr->fr_mb != NULL)
+		fr_flush(fr);
+	/* Sanity check */
+	if (fr->fr_mb != NULL)
+		errx(1, "Frame is still null");
+	/* Wire block into frame */
+	fr_load(fr, mb);
+	fr_timestamp(fr);
 	
 	return (fr);
 }
 
-/*
- * Search for a free metainode in frame fr.
- */
-struct metainode *
-fr_get_free_mi(struct frame *fr)
+struct frame *
+bc_frame_by_rid(struct rowid *rid)
 {
-	struct metainode *mi;
+	struct frame *fr;
 	struct metablock *mb;
 	int i;
-
+	
 	/* Sanity check */
-	if (fr->fr_state == FR_STA_UNWIRED)
-		errx(1, "bc_search_free: unwired frame");
+	if (rid->rid_block >= BLKNUM ||
+	    rid->rid_inode >= INONUM)
+		errx(1, "Invalid rid %u %u", rid->rid_block, rid->rid_inode);
+	
+	/* Check if block is wired */
+	for (i = 0; i < FRAMENUM; i++) {
+		fr = &buffercache.bc_frames[i];
+		mb = fr->fr_mb;
+		/* Skip Unwired frames*/
+		if (mb == NULL)
+			continue;
+		if (mb->mb_block == rid->rid_block) {
+			fr_timestamp(fr);
+			return (fr);
+		}
+	}
+	
+	/* Damn, unwired :/, we need to swap */
+	mb = &filesystem.fs_metablocks[rid->rid_block];
+	/* Can't fail */
+	return (bc_swap(mb));
+}
+
+void
+fr_load(struct frame *fr, struct metablock *mb)
+{
+	FILE *f;
+	
+	/* Sanity check */
+	if (fr->fr_mb != NULL)
+		errx(1, "fr_flush: load on wired frame");
 	
 	fr_timestamp(fr);
-	mb = fr->fr_mb;
-	/* Find a free mi */
-	for (i = 0; i < INONUM; i++) {
-		mi = &mb->mb_inodes[i];
-		if (mi->mi_state == MI_STA_FREE)
-			return (mi);
-	}
-
-	return (NULL);
+	f  = filesystem.fs_backstorage;
+	/* fseek into block offset */
+	if (fseek(f, mb->mb_block, SEEK_SET) == -1)
+		err(1, "fseek");
+	/* Flush */
+	if (fread(fr->fr_data, sizeof(fr->fr_data), 1, f)
+	    != sizeof(fr->fr_data))
+		err(1, "fread");
+	fr->fr_mb = mb;
 }
 
 void
@@ -145,68 +146,150 @@ fr_flush(struct frame *fr)
 	struct metablock	*mb;
 
 	/* Sanity check */
-	if (fr->fr_state != FR_STA_WIRED)
+	if (fr->fr_mb == NULL)
 		errx(1, "fr_flush: flush on unwired frame");
-	f  = fs->fs_backstorage;
+	f  = filesystem.fs_backstorage;
 	mb = fr->fr_mb;
 	/* fseek into block offset */
-	if (fseek(f, mb->mb_offset, SEEK_SET) == -1)
+	if (fseek(f, mb->mb_block, SEEK_SET) == -1)
 		err(1, "fseek");
 	/* Flush */
 	if (fwrite(fr->fr_data, sizeof(fr->fr_data), 1, f)
 	    != sizeof(fr->fr_data))
 		err(1, "fwrite");
+	/* Unwire */
+	fr->fr_mb = NULL;
 }
 
-void
-fr_load(struct frame *fr)
+/*
+ * Alloc an inode from any free metainode in frame fr. Not pure.
+ */
+struct inode *
+fr_inode_alloc(struct frame *fr)
 {
-	struct metablock	*mb;
-	FILE			*f;
+	struct inode *ino;
+	struct metablock *mb;
+	int j;
 	
-	/* Sanity check */
-	if (fr->fr_state != FR_STA_UNWIRED)
-		errx(1, "fr_flush: load on wired frame");
-	
-	fr_timestamp(fr);
-	f  = fs->fs_backstorage;
 	mb = fr->fr_mb;
-	/* fseek into block offset */
-	if (fseek(f, mb->mb_offset, SEEK_SET) == -1)
-		err(1, "fseek");
-	/* Flush */
-	if (fread(fr->fr_data, sizeof(fr->fr_data), 1, f)
-	    != sizeof(fr->fr_data))
-		err(1, "fread");
+	for (j = 0; j < INONUM; j++) {
+		if (mb->mb_metainodes[j] == INODE_STA_USED)
+			continue;
+		/* Cool, we have the frame, make an inode */
+		if ((ino = calloc(1, sizeof(*ino))) == NULL)
+			err(1, "calloc");
+
+		ino->ino_rid.rid_block = mb->mb_block;
+		ino->ino_rid.rid_inode = j;
+		ino->ino_data = &fr->fr_data[j];
+		mb->mb_metainodes[j] = INODE_STA_USED;
+		fr_timestamp(fr);
+			
+		return (ino);
+	}
+	
+	return (NULL);
 }
 
 void
 fr_timestamp(struct frame *fr)
 {
-	clock_gettime(CLOCK_MONOTONIC, &fr->fr_tp);
+	clock_gettime(CLOCK_MONOTONIC, &fr->fr_timestamp);
 }
 
-struct frame *
-bc_next_victim(void)
+struct inode *
+inode_by_rid(struct rowid *rid)
 {
 	struct frame *fr;
-	struct frame *victim;
+	struct inode *ino;
 	
-	    
+	/* Sanity check */
+	if (rid->rid_block >= BLKNUM ||
+	    rid->rid_inode >= INONUM)
+		errx(1, "Invalid rid %u %u", rid->rid_block, rid->rid_inode);
+	
+	fr = bc_frame_by_rid(rid);
+	/* Cool, we have the frame, make an inode */
+	if ((ino = calloc(1, sizeof(*ino))) == NULL)
+		err(1, "calloc");
+	ino->ino_rid = *rid;
+	ino->ino_data = &fr->fr_data[rid->rid_inode];
+	
+	return (ino);
 }
 
-struct metablock *
-fs_get_any_free(void)
-{
-	int i;
 
+struct inode *
+inode_alloc(void)
+{
+	struct frame *fr;
+	struct metablock *mb;
+	struct inode *ino;
+	int i;
+	
+	/* Search for any free inode in buffercache */
+	for (i = 0; i < FRAMENUM; i++) {
+		fr = &buffercache.bc_frames[i];
+		mb = fr->fr_mb;
+		/* Skip Unwired frames*/
+		if (mb == NULL)
+			continue;
+		
+		ino = fr_inode_alloc(fr);
+		if (ino != NULL)
+			return (ino);
+	}
+	/* If we got here, we'll need to swap */
+	mb = fs_any_free();
+	fr = bc_swap(mb);
+	fr_timestamp(fr);
+	ino = fr_inode_alloc(fr);
+	if (ino != NULL)
+		return (ino);
+	
+	errx(1, "inode_alloc: whoops, still no free inode");
+	return (NULL);		/* NOTREACHED */
+}
+
+void
+inode_free(struct inode *ino)
+{
+	struct metablock *mb;
+	
+	/* Holy shit batman, that's ugly. */
+	mb = &filesystem.fs_metablocks[ino->ino_rid.rid_block];
+	mb->mb_metainodes[ino->ino_rid.rid_inode] = INODE_STA_FREE;
+	free(ino);
+}
+
+static void
+test_one(void)
+{
+	struct inode *ino;
+	
+	printf("Running test 1\n");
 	/* TODO */
-	return (NULL);
 }
 
 int
-main(void)
+main(int argc, char *argv[])
 {
+	char ch;
+	
+	while ((ch = getopt(argc, argv, "v")) != -1) {
+		switch (ch) {
+		case 'v':
+			vflag++;
+			break;
+		default:
+			errx(1, "TODO USAGE()");
+			break;	/* NOTREACHED */
+		}
+	}
+	
+	printf("verbose level: %d\n", vflag);
+	/* Call lex main. */
+	/* TODO yylex() */
 	
 	return (0);
 }

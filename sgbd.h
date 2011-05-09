@@ -18,6 +18,7 @@
 #define SGBD_H
 
 #include <err.h>
+#include <errno.h>
 #include <event.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,51 +31,31 @@
 #define INONUM		64	/* Inodes per block */
 #define INOSZ		64	/* Inode size */
 
-#define MBWIRED(mb) ((mb)->mb_fr != NULL)
-
 struct rowid {
-	u_int8_t  pk;
-	u_int16_t blk_off;
+	u_int16_t rid_block;
+	u_int16_t rid_inode;
 };
 
-struct table {
-	u_int8_t	ta_pk;
-	char		ta_desc[56];
+struct inode {
+	struct rowid	 ino_rid;
+	void		*ino_data;
 };
 
-struct bplus_node {
-	struct rowid bp_parent;
-	struct rowid bp_left;
-	struct rowid bp_right;
+enum metainode_state {
+	INODE_STA_FREE,
+	INODE_STA_USED
 };
 
-enum frame_state {
-	FR_STA_UNWIRED,
-	FR_STA_WIRED
+struct metablock {
+	u_int16_t	mb_block; /* Block offset */
+	char		mb_metainodes[INONUM];
 };
 
 struct frame {
 	struct metablock	*fr_mb;
-	enum frame_state	 fr_state;
-	struct timespec		 fr_tp;
+#define fr_inodes fr_mb->mb_inodes	
+	struct timespec		 fr_timestamp;
 	char			 fr_data[INONUM][INOSZ]; /* 64 inodes of 64 bytes */
-};
-
-enum metainode_state {
-	MI_STA_FREE,
-	MI_STA_USED
-};
-
-struct metainode {
-	struct metablock	*mi_blk;	/* Parent block */
-	enum metainode_state	 mi_state;
-	void			*mi_data;
-};
-
-struct metablock {
-	u_int16_t		 mb_off; 	/* Block offset */
-	struct frame		*mb_fr; 	/* Not null if wired */
-	struct metainode	 mb_inodes[INONUM]; /* Inode list */
 };
 
 /* Filesystem (Datafile) */
@@ -82,16 +63,27 @@ struct filesystem {
 	char			*fs_backstoragepath;
 	FILE			*fs_backstorage;
 	struct metablock	 fs_metablocks[BLKNUM];
-	struct frame		 fs_frames[FRAMENUM];
 };
 
-void *			bc_alloc_ino(void);
-void			bc_free_ino(void *);
-struct metainode *	bc_get_free_mi(void);
-struct frame *		bc_swap(struct metablock *, struct metablock *);
-struct metainode *	fr_get_free_mi(struct frame *);
-void			fr_flush(struct frame *);
-void			fr_load(struct frame *);
+struct buffercache {
+	struct frame bc_frames[FRAMENUM];
+};
+
+struct metablock	*fs_any_free(void);
+struct frame		*bc_next_victim(void);
+struct frame		*bc_swap(struct metablock *);
+struct frame		*bc_frame_by_rid(struct rowid *rid);
+void			 fr_load(struct frame *, struct metablock *);
+void			 fr_flush(struct frame *);
+struct inode		*fr_inode_alloc(struct frame *);
+void			 fr_timestamp(struct frame *);
+struct inode		*inode_by_rid(struct rowid *);
+struct inode		*inode_alloc(void);
+void			 inode_free(struct inode *);
+
+
+
+
 
 
 
