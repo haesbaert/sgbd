@@ -22,6 +22,42 @@ static int vflag = 0;
 
 /* NEW STUFF */
 
+
+/*
+ * Start the fucken ball.
+ */
+void
+fs_init(void)
+{
+	int new = 0;
+	struct stat sb;
+
+	if (filesystem.fs_backstoragepath == NULL)
+		filesystem.fs_backstoragepath = "/tmp/sgbd.fs";
+	/* Check if this is a new filesystem */
+	if (stat(filesystem.fs_backstoragepath, &sb) == -1) {
+		if (errno != ENOENT)
+			errx(1, "stat");
+		new = 1;
+	}
+
+	/* Open file */
+	filesystem.fs_backstorage = fopen(filesystem.fs_backstoragepath, "w+");
+	if (filesystem.fs_backstorage == NULL)
+		err(1, "fopen %s", filesystem.fs_backstoragepath);
+	if (new) {
+		char dummyblock[INOSZ];
+		
+		if (vflag)
+			fprintf(stderr, "new filesystem at %s\n",
+			    filesystem.fs_backstoragepath);
+		bzero(dummyblock, sizeof(dummyblock));
+		if (fwrite(dummyblock, sizeof(dummyblock), INONUM,
+		    filesystem.fs_backstorage) != INONUM)
+			err(1, "fwrite");
+	}
+}
+
 /*
  * Return a metablock with at least one free inode. Pure.
  */
@@ -45,6 +81,12 @@ fs_any_free(void)
 	err(1, "fs_any_free");
 	
 	return (NULL);    
+}
+
+void
+bc_init(void)
+{
+	/* TODO */
 }
 
 struct frame *
@@ -121,42 +163,42 @@ bc_frame_by_rid(struct rowid *rid)
 void
 fr_load(struct frame *fr, struct metablock *mb)
 {
-	FILE *f;
+	/* FILE *f; */
 	
 	/* Sanity check */
 	if (fr->fr_mb != NULL)
 		errx(1, "fr_flush: load on wired frame");
 	
 	fr_timestamp(fr);
-	f  = filesystem.fs_backstorage;
+	/* f  = filesystem.fs_backstorage; */
 	/* fseek into block offset */
-	if (fseek(f, mb->mb_block, SEEK_SET) == -1)
-		err(1, "fseek");
+	/* if (fseek(f, mb->mb_block, SEEK_SET) == -1) */
+	/* 	err(1, "fseek"); */
 	/* Flush */
-	if (fread(fr->fr_data, sizeof(fr->fr_data), 1, f)
-	    != sizeof(fr->fr_data))
-		err(1, "fread");
+	/* if (fread(fr->fr_data, sizeof(fr->fr_data), 1, f) */
+	/*     != sizeof(fr->fr_data)) */
+	/* 	err(1, "fread"); */
 	fr->fr_mb = mb;
 }
 
 void
 fr_flush(struct frame *fr)
 {
-	FILE			*f;
+	/* FILE			*f; */
 	struct metablock	*mb;
 
 	/* Sanity check */
 	if (fr->fr_mb == NULL)
 		errx(1, "fr_flush: flush on unwired frame");
-	f  = filesystem.fs_backstorage;
+	/* f  = filesystem.fs_backstorage; */
 	mb = fr->fr_mb;
 	/* fseek into block offset */
-	if (fseek(f, mb->mb_block, SEEK_SET) == -1)
-		err(1, "fseek");
+	/* if (fseek(f, mb->mb_block, SEEK_SET) == -1) */
+	/* 	err(1, "fseek"); */
 	/* Flush */
-	if (fwrite(fr->fr_data, sizeof(fr->fr_data), 1, f)
-	    != sizeof(fr->fr_data))
-		err(1, "fwrite");
+	/* if (fwrite(fr->fr_data, sizeof(fr->fr_data), 1, f) */
+	/*     != sizeof(fr->fr_data)) */
+	/* 	err(1, "fwrite"); */
 	/* Unwire */
 	fr->fr_mb = NULL;
 }
@@ -265,8 +307,6 @@ inode_free(struct inode *ino)
 static void
 test_one(void)
 {
-	struct inode *ino;
-	
 	printf("Running test 1\n");
 	/* TODO */
 }
@@ -286,8 +326,10 @@ main(int argc, char *argv[])
 			break;	/* NOTREACHED */
 		}
 	}
-	
+
 	printf("verbose level: %d\n", vflag);
+	
+	fs_init();
 	/* Call lex main. */
 	/* TODO yylex() */
 	

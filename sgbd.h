@@ -17,9 +17,14 @@
 #ifndef SGBD_H
 #define SGBD_H
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+
 #include <err.h>
 #include <errno.h>
 #include <event.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +35,7 @@
 #define BLKNUM		8192	/* Total number of blocks */
 #define INONUM		64	/* Inodes per block */
 #define INOSZ		64	/* Inode size */
+#define FSSZ		(BLKNUM * INONUM)
 
 struct rowid {
 	u_int16_t rid_block;
@@ -69,7 +75,9 @@ struct buffercache {
 	struct frame bc_frames[FRAMENUM];
 };
 
+void 			 fs_init(void);
 struct metablock	*fs_any_free(void);
+void			 bc_init(void);
 struct frame		*bc_next_victim(void);
 struct frame		*bc_swap(struct metablock *);
 struct frame		*bc_frame_by_rid(struct rowid *rid);
@@ -80,16 +88,6 @@ void			 fr_timestamp(struct frame *);
 struct inode		*inode_by_rid(struct rowid *);
 struct inode		*inode_alloc(void);
 void			 inode_free(struct inode *);
-
-
-
-
-
-
-
-
-
-
 
 #endif
 
