@@ -54,21 +54,19 @@ fs_init(void)
 	filesystem.fs_backstorage = fopen(filesystem.fs_backstoragepath, "w+");
 	if (filesystem.fs_backstorage == NULL)
 		err(1, "fopen %s", filesystem.fs_backstoragepath);
+	
+	if (vflag)
+		fprintf(stderr, "%s filesystem at %s\n",
+		    new ? "new" : "existing",
+		    filesystem.fs_backstoragepath);
+		
 	if (new) {
 		char dummyblock[INOSZ];
 		
-		if (vflag)
-			fprintf(stderr, "new filesystem at %s\n",
-			    filesystem.fs_backstoragepath);
 		bzero(dummyblock, sizeof(dummyblock));
 		if (fwrite(dummyblock, sizeof(dummyblock), INONUM,
 		    filesystem.fs_backstorage) != INONUM)
 			err(1, "fwrite");
-	}
-	else {
-		if (vflag)
-			fprintf(stderr, "existing filesystem at %s\n",
-			    filesystem.fs_backstoragepath);
 	}
 	
 	/* Init metablocks */
