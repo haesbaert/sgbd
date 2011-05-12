@@ -75,6 +75,7 @@ struct buffercache {
 	struct frame bc_frames[FRAMENUM];
 };
 
+void __dead 		 usage(void);
 void 			 fs_init(void);
 struct metablock	*fs_any_free(void);
 void			 bc_init(void);

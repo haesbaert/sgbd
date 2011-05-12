@@ -19,10 +19,17 @@
 struct filesystem filesystem;
 struct buffercache buffercache;
 static int vflag = 0;
-
 /* NEW STUFF */
 
-
+void __dead
+usage(void)
+{
+	fprintf(stderr,
+	    "usage: sgbd [-v]\n"
+	    "       sgbd [-v] -t test\n"
+	    "       sgbd -h\n");
+	exit(1);
+}
 /*
  * Start the fucken ball.
  */
@@ -338,7 +345,7 @@ main(int argc, char *argv[])
 	char ch;
 	char *test = NULL;
 	
-	while ((ch = getopt(argc, argv, "vt:")) != -1) {
+	while ((ch = getopt(argc, argv, "hvt:")) != -1) {
 		switch (ch) {
 		case 'v':
 			vflag++;
@@ -346,8 +353,9 @@ main(int argc, char *argv[])
 		case 't':
 			test = optarg;
 			break;
+		case 'h':
 		default:
-			errx(1, "TODO USAGE()");
+			usage();
 			break;	/* NOTREACHED */
 		}
 	}
