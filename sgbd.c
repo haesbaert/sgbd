@@ -344,7 +344,7 @@ main(int argc, char *argv[])
 			vflag++;
 			break;
 		case 't':
-			test = (char *) optarg;
+			test = optarg;
 			break;
 		default:
 			errx(1, "TODO USAGE()");
