@@ -56,6 +56,11 @@ fs_init(void)
 		    filesystem.fs_backstorage) != INONUM)
 			err(1, "fwrite");
 	}
+	else {
+		if (vflag)
+			fprintf(stderr, "existing filesystem at %s\n",
+			    filesystem.fs_backstoragepath);
+	}
 }
 
 /*
