@@ -88,7 +88,7 @@ void			 fr_timestamp(struct frame *);
 struct inode		*inode_by_rid(struct rowid *);
 struct inode		*inode_alloc(void);
 void			 inode_free(struct inode *);
-
+void 			 test_choke(void);
 #endif
 
 	

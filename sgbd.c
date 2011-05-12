@@ -30,7 +30,9 @@ void
 fs_init(void)
 {
 	int new = 0;
+	int i;
 	struct stat sb;
+	struct metablock *mb;
 
 	if (filesystem.fs_backstoragepath == NULL)
 		filesystem.fs_backstoragepath = "/tmp/sgbd.fs";
@@ -60,6 +62,13 @@ fs_init(void)
 		if (vflag)
 			fprintf(stderr, "existing filesystem at %s\n",
 			    filesystem.fs_backstoragepath);
+	}
+	
+	/* Init metablocks */
+	for (i = 0; i < BLKNUM; i++) {
+		mb = &filesystem.fs_metablocks[i];
+
+		mb->mb_block = i;
 	}
 }
 
@@ -231,7 +240,10 @@ fr_inode_alloc(struct frame *fr)
 		ino->ino_data = &fr->fr_data[j];
 		mb->mb_metainodes[j] = INODE_STA_USED;
 		fr_timestamp(fr);
-			
+		if (vflag)
+			fprintf(stderr, "Inode rid %u:%u alloc\n",
+			    ino->ino_rid.rid_block, ino->ino_rid.rid_inode);
+		
 		return (ino);
 	}
 	
@@ -309,22 +321,30 @@ inode_free(struct inode *ino)
 	free(ino);
 }
 
-static void
-test_one(void)
+void
+test_choke(void)
 {
-	printf("Running test 1\n");
-	/* TODO */
+	printf("Running choke test...\n");
+	printf("I'll alloc as nuts and die with ENOMEM, ok ?\n");
+	(void)getchar();
+	while (inode_alloc() != NULL)
+		;
+	errx(1, "test_choke: wrong logic, shouldn't be here.");
 }
 
 int
 main(int argc, char *argv[])
 {
 	char ch;
+	char *test = NULL;
 	
-	while ((ch = getopt(argc, argv, "v")) != -1) {
+	while ((ch = getopt(argc, argv, "vt:")) != -1) {
 		switch (ch) {
 		case 'v':
 			vflag++;
+			break;
+		case 't':
+			test = (char *) optarg;
 			break;
 		default:
 			errx(1, "TODO USAGE()");
@@ -335,6 +355,13 @@ main(int argc, char *argv[])
 	printf("verbose level: %d\n", vflag);
 	
 	fs_init();
+	
+	/* Run tests */
+	if (test) {
+		if (strcmp(test, "choke") == 0)
+			test_choke();
+		errx(1, "Unknown test %s", test);
+	}
 	/* Call lex main. */
 	/* TODO yylex() */
 	
