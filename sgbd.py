@@ -48,7 +48,7 @@ class MetaBlock(object):
         self.offset    = self.idx * BLOCKSIZE
 
 
-class Block():
+class Block(object):
     def __init__(self, metablock):
         if metablock.type is None:
             raise ValueError("metablock.type unset")
@@ -126,7 +126,7 @@ class LeafBlock(Block):
         os.fsync()
 
     
-class FileSys():
+class FileSys(object):
     def __init__(self, fspath):
         self.fspath     = fspath
         self.root       = None
