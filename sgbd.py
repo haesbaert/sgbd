@@ -48,6 +48,8 @@ class MetaBlock(object):
 
 class Block():
     def __init__(self, metablock):
+        if metablock.type is None:
+            raise ValueError("metablock.type unset")
         self.metablock = metablock
         self.timestamp = 0
 
@@ -82,13 +84,12 @@ class Block():
         raise TypeError("Block.deserialize not implemented")
     
 
-
 class LeafBlock(Block):
     """
     A block which hold rowids, that is, a leaf block.
     """
 
-    def __init__(self, n):
+    def __init__(self, metablock):
         """
         
         Arguments:
@@ -96,7 +97,7 @@ class LeafBlock(Block):
         - `n`: Block number
         """
         Block.__init__(self, n)
-        self.blocktype = BLOCKTYPE.LEAF
+        self.metablock.blocktype = BLOCKTYPE.LEAF
         self.rowids = []        # Rowids are binary tuples
 
     def serialize(self):
@@ -108,42 +109,6 @@ class LeafBlock(Block):
         """
         
         
-        # TODO
-        pass
-
-
-class RecordBlock(Block):
-    """
-    A block which holds all records, which are a tuple (pk, desc)
-    """
-
-    def __init__(self, n):
-        """
-        
-        Arguments:
-        - `self`:
-        - `n`: Block number
-        """
-        Block.__init__(self, n)
-        self.blocktype = BLOCKTYPE.RECORD
-        self.records = []
-
-    def __len__(self):
-        """Returns the number of records in this block.
-        
-        Arguments:
-        - `self`:
-        """
-
-        return len(self.records)
-
-    def serialize(self):
-        """
-        Returns a serialized string of block, usefull for storing into disk and
-        such, guaranteed to fit in 4096 bytes.
-        Arguments:
-        - `self`:
-        """
         # TODO
         pass
     
@@ -166,9 +131,19 @@ class FileSys():
             raise ValueError("Buffer Cache is full")
         if metablock.wired:
             raise ValueError("Block already wired")
+        if metablock.type is None:
+            raise ValueError("Metablock type unset")
         
         metablock.wired = True
-        block = Block(metablock)
+        if metablock.blocktype == BLOCKTYPE.LEAF:
+            block = LeafBlock(metablock)
+        elif metablock.blocktype == BLOCKTYPE.BRANCH:
+            block = BranchBlock(metablock)
+        elif metablock.blocktype == BLOCKTYPE.RECORD:
+            block = RecordBlock(metablock)
+        else:
+            raise ValueError("Unknown metablock.type {0}", metablock.blocktype)
+        
         self.buffer.append(block)
         self.fs.seek(block.metablock.offset)
         datum = self.fs.read(BLOCKSIZE)
