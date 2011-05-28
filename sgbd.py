@@ -16,17 +16,19 @@
  OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 """
 import os
+import time
+import struct
 
 # Constants to this module
 BLOCKNUM     = 8192
 BLOCKSIZE    = 4096
-DATAFILESIZE = BLOCKUM * BLOCKSIZE
+DATAFILESIZE = BLOCKNUM * BLOCKSIZE
 MAXBUFFERLEN = 256
-BLOCKTYPE = {
-    LEAF   = 1,
-    BRANCH = 2,
-    RECORD = 3,
-    }
+KEYSIZE      = 12
+BLOCKTYPE_LEAF   = 1
+BLOCKTYPE_BRANCH = 2
+BLOCKTYPE_RECORD = 3
+
 
 class MetaBlock(object):
     """
@@ -64,24 +66,23 @@ class Block():
         
         self.timestamp = time.time()
     
-    def serialize(self):
-        """Abstract method must return a serialized string.
+    def flush(self, fh):
+        """Abstract method, will flush block onto filehandle fh.
         
         Arguments:
         - `self`:
+        - `fh`: File
         """
-        
-        raise TypeError("Block.serialize not implemented")
+        raise TypeError("Block.flush not implemented")
 
-    def deserialize(self, stream):
-        """Abstract method should load stream into something.
+    def load(self, fh):
+        """Abstract method, will load block from filehandle.
         
         Arguments:
         - `self`:
-        - `stream`: A stream of bytes to be deserialized
+        - `fh`: File
         """
-        
-        raise TypeError("Block.deserialize not implemented")
+        raise TypeError("Block.load not implemented")
     
 
 class LeafBlock(Block):
@@ -94,24 +95,36 @@ class LeafBlock(Block):
         
         Arguments:
         - `self`:
-        - `n`: Block number
+        - `metablock`: MetaBlock
         """
-        Block.__init__(self, n)
-        self.metablock.blocktype = BLOCKTYPE.LEAF
-        self.rowids = []        # Rowids are binary tuples
+        Block.__init__(self, metablock)
+        self.metablock.blocktype = BLOCKTYPE_LEAF
+        self.keys = []   # Rowids are ternary tuples (pk, blocknum, offset)
 
-    def serialize(self):
-        """
-        Returns a serialized string of block, usefull for storing into disk and
-        such, guaranteed to fit in 4096
-        Arguments:
-        - `self`:
-        """
+    def flush(self, fh):
+        if not self.metablock.wired:
+            raise ValueError("flush on unwired block")
         
-        
-        # TODO
-        pass
-    
+        fh.seek(self.metablock.offset)
+        for (pk, bnum, offset) in self.keys:
+            s = struct.pack("QHH", pk, bnum, offset)
+            fh.write(s)
+        fh.flush()
+        os.fsync()
+
+    def load(self, fh):
+        if self.metablock.wired:
+            raise ValueError("load on wired block")
+        if self.keys:
+            raise ValueError("Keys not empty")
+
+        fh.seek(self.metablock.offset)
+        for _ in xrange(self.metablock.entries):
+            k = struct.unpack("QHH", fh.read())
+            self.keys.append(k)
+        fh.flush()
+        os.fsync()
+
     
 class FileSys():
     def __init__(self, fspath):
@@ -119,35 +132,37 @@ class FileSys():
         self.root       = None
         self.metablocks = [MetaBlock(x) for x in xrange(BLOCKNUM)]
         self.buffer     = []
-        if os.path.exists(self.fspath):
-            if os.system("dd if=/dev/zero of={0} bs={1} count={2}",
-                      self.fspath, BLOCKSIZE, BLOCKNUM):
+        if not os.path.exists(self.fspath):
+            if os.system("dd if=/dev/zero of={0} bs={1} count={2}".
+                         format(self.fspath, BLOCKSIZE, BLOCKNUM)):
                 raise ValueError("dd error")
         # Open datafile, 4096bytes buf.
         self.fsh = open(self.fspath, "wrb", BLOCKSIZE)
 
     def wire(self, metablock):
-        if len(self.buffer) == MAXBUFFERLEN:
-            raise ValueError("Buffer Cache is full")
         if metablock.wired:
             raise ValueError("Block already wired")
         if metablock.type is None:
             raise ValueError("Metablock type unset")
         
-        metablock.wired = True
-        if metablock.blocktype == BLOCKTYPE.LEAF:
+        # If we're full, we must swap
+        if len(self.buffer) == MAXBUFFERLEN:
+            victim = self.victim()
+            self.unwire(victim)
+            assert len(self.buffer) < MAXBUFFERLEN, "Buffer still full"
+
+        if metablock.blocktype == BLOCKTYPE_LEAF:
             block = LeafBlock(metablock)
-        elif metablock.blocktype == BLOCKTYPE.BRANCH:
-            block = BranchBlock(metablock)
-        elif metablock.blocktype == BLOCKTYPE.RECORD:
-            block = RecordBlock(metablock)
+        # elif metablock.blocktype == BLOCKTYPE_BRANCH:
+        #     block = BranchBlock(metablock)
+        # elif metablock.blocktype == BLOCKTYPE_RECORD:
+        #     block = RecordBlock(metablock)
         else:
             raise ValueError("Unknown metablock.type {0}", metablock.blocktype)
         
+        metablock.wired = True
         self.buffer.append(block)
-        self.fs.seek(block.metablock.offset)
-        datum = self.fs.read(BLOCKSIZE)
-        block.deserialize(datum)
+        block.load(self.fsh)
         
         return block
         
@@ -161,14 +176,10 @@ class FileSys():
         """
         if not block.metablock.wired:
             raise ValueError("unwire on unwired block")
-        
-        datum = block.serialize()
+
+        block.flush(self.fsh)
         block.metablock.wired = False
         self.buffer.remove(block)
-        self.fs.seek(block.metablock.offset)
-        self.fs.write(datum)
-        self.fs.flush()
-        os.fsync()
 
     def victim(self):
         """Select the next victim
@@ -179,28 +190,10 @@ class FileSys():
         if not self.buffer:
             raise ValueError("buffer blocks is empty")
         
-        candidate = self.buffer[0]
+        victim = self.buffer[0]
         for b in self.buffer:
-            if b.timestamp < cadidate.timestamp:
-                candidate = b
+            if b.timestamp < victim.timestamp:
+                victim = b
                 
-        return candidate
+        return victim
 
-"""
-Simulando uma insercao.
-insert_entry(15, "descricao 15")
-	- [fs] Solicita bloco raiz
-        	- [buffer] se bloco esta wired, se nao, wire ou swap
-        - [fs] Bloco so pode ser branch ou leaf
-        	- [fs] Se leaf...
-                	- [fs] Se existe espaco no bloco
-                                - [fs] Busca DataEntry do rowid, copia pk/desc
-                        	- [fs] Insere rowid address no bloco
-                        - [fs] Se nao, faz a danca TODO.
-        	- [fs] Se branch...
-                	- [fs] Desce na arvore ate uma leaf.
-                        - 
-
-"""
-
-    
