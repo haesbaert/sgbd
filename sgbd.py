@@ -142,7 +142,7 @@ class FileSys(object):
     def wire(self, metablock):
         if metablock.wired:
             raise ValueError("Block already wired")
-        if metablock.type is None:
+        if metablock.blocktype is None:
             raise ValueError("Metablock type unset")
         
         # If we're full, we must swap
