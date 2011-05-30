@@ -177,6 +177,9 @@ class LeafKey(object):
         self.pk           = 0
         self.rid_blocknum = -1
         self.rid_offset   = -1
+        
+    def __cmp__(self, other):
+        return cmp(self.pk, other.pk)
 
     def free(self):
         return self.pk == 0
@@ -196,8 +199,9 @@ class LeafBlock(Block):
         """
         Block.__init__(self, metablock)
         self.metablock.blocktype = BLOCKTYPE_LEAF
-        self.keys = tuple([LeafKey(metablock.blocknum, x)
-                           for x in xrange(MAXLEAFKEYS)])
+        self.allkeys = tuple([LeafKey(metablock.blocknum, x)
+                              for x in xrange(MAXLEAFKEYS)])
+        self.keys = []
 
     def __len__(self):
         return len(self.keys)
@@ -207,7 +211,7 @@ class LeafBlock(Block):
             raise ValueError("flush on unwired block")
         
         fh.seek(self.metablock.offset)
-        for lk in self.keys:
+        for lk in self.allkeys:
             s = struct.pack("QHH", lk.pk, lk.rid_blocknum, lk.rid_offset)
             fh.write(s)
         fh.flush()
@@ -216,26 +220,43 @@ class LeafBlock(Block):
     def load(self, fh):
         self.touch()
         fh.seek(self.metablock.offset)
-        for lk in self.keys:
+        for lk in self.allkeys:
             (lk.pk, lk.rid_blocknum, lk.rid_offset) = struct.unpack("QHH", fh.read(12))
+            if not lk.free():
+                self.insert(lk)
         fh.flush()
         os.fsync(fh.fileno())
 
     def full(self):
-        return self.nextfree() == None
+        return len(self.keys) == len(self.allkeys)
 
     def nextfree(self):
-        for lk in self.keys:
+        for lk in self.allkeys:
             if lk.free():
                 return lk
         return None
-            
-    def insert(self, rec):
-        # TODO CHECKS
+
+    def leafkey_from_rec(self, rec):
         lk              = self.nextfree()
+        if lk is None:
+            raise ValueError("No more free leafkeys")
         lk.pk           = rec.pk
         lk.rid_blocknum = rec.blocknum
         lk.rid_offset   = rec.offset
+        
+        return lk
+        
+    def insert(self, rec):
+        pos = 0
+
+        lk = self.leafkey_from_rec(rec)
+        for lkaux in self.keys:
+            if lk < lkaux:
+                break
+            pos = pos + 1
+        self.keys.insert(pos, lk)
+        
+        return lk
         
 class Sgbd(object):
     def __init__(self, fspath):
@@ -376,8 +397,6 @@ class Sgbd(object):
         # FIXME
         return self.fetch_root()
         
-        
-        
     def record_insert(self, pk, desc="Default description"):
         """
         
@@ -406,15 +425,17 @@ class Sgbd(object):
     
         # New stuff
         
-        # Make a new record
-        rec = self.make_record(pk, desc)
         # Find the leaf to this record
         leaf = self.find_leaf(pk)
+        # Make a new record
+        rec = self.make_record(pk, desc)
         # If we have room, go on and insert.
         if not leaf.full():
             leaf.insert(rec)
         else:
             raise ValueError("Unimplemented")
+        
+        return leaf
             
         
 """
