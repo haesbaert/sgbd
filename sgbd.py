@@ -18,13 +18,17 @@
 import os
 import time
 import struct
+import pickle
+import sys
 
 # Constants to this module
-BLOCKNUM     = 8192
-BLOCKSIZE    = 4096
-DATAFILESIZE = BLOCKNUM * BLOCKSIZE
-MAXBUFFERLEN = 256
-KEYSIZE      = 12
+BLOCKNUM         = 8192
+BLOCKSIZE        = 4096
+DATAFILESIZE     = BLOCKNUM * BLOCKSIZE
+MAXBUFFERLEN     = 256
+MAXLEAFKEYS      = 330
+MAXRECORDS       = 64
+KEYSIZE          = 12
 BLOCKTYPE_LEAF   = 1
 BLOCKTYPE_BRANCH = 2
 BLOCKTYPE_RECORD = 3
@@ -35,22 +39,22 @@ class MetaBlock(object):
     Describes all metadata on a given block, we always have 8192 of these.
     """
 
-    def __init__(self, idx):
+    def __init__(self, blocknum):
         """
-        Creates a new metablock with block index number idx
+        Creates a new metablock with block index number blocknum
         Arguments:
-        - `idx`: integer Block number.
+        - `blocknum`: integer Block number.
         """
-        self.idx       = idx
+        self.blocknum  = blocknum
         self.free      = True
         self.blocktype = None
         self.wired     = False
-        self.offset    = self.idx * BLOCKSIZE
+        self.offset    = self.blocknum * BLOCKSIZE
 
 
 class Block(object):
     def __init__(self, metablock):
-        if metablock.type is None:
+        if metablock.blocktype is None:
             raise ValueError("metablock.type unset")
         self.metablock = metablock
         self.timestamp = 0
@@ -66,7 +70,7 @@ class Block(object):
         
         self.timestamp = time.time()
     
-    def flush(self, fh):
+    def flush(self, _fh):
         """Abstract method, will flush block onto filehandle fh.
         
         Arguments:
@@ -75,7 +79,7 @@ class Block(object):
         """
         raise TypeError("Block.flush not implemented")
 
-    def load(self, fh):
+    def load(self, _fh):
         """Abstract method, will load block from filehandle.
         
         Arguments:
@@ -84,6 +88,99 @@ class Block(object):
         """
         raise TypeError("Block.load not implemented")
     
+    def full(self):
+        """Abstract method, True if block is somewhat full, False otherwise.
+        
+        Arguments:
+        - `self`:
+        """
+        raise TypeError("Block.full not implemented")
+
+    def nextfree(self):
+        """Abstract method, returns the next free record/key/or so on, None otherwise.
+        
+        Arguments:
+        - `self`:
+        """
+        raise TypeError("Block.nextfree not implemented")
+
+class Record(object):
+    def __init__(self, blocknum, offset):
+        """
+        
+        Arguments:
+        - `self`:
+        """
+        self.blocknum = blocknum
+        self.offset   = offset
+        
+        self.pk       = 0
+        self.desc     = "Default"
+
+    def free(self):
+        return self.pk == 0
+    
+class RecordBlock(Block):
+    """
+    """
+
+    def __init__(self, metablock):
+        """
+        """
+        Block.__init__(self, metablock)
+        self.metablock.blocktype = BLOCKTYPE_RECORD
+        self.records = tuple([Record(metablock.blocknum, x)
+                              for x in xrange(MAXRECORDS)])
+        
+    def __len__(self):
+        return len(self.records)
+    
+    def nextfree(self):
+        for x in self.records:
+            if x.free():
+                return x
+
+        return None
+
+    def full(self):
+        return self.nextfree() == None
+
+    def flush(self, fh):
+        if not self.metablock.wired:
+            raise ValueError("flush on unwired block")
+        
+        fh.seek(self.metablock.offset)
+        for rec in self.records:
+            s = struct.pack("q56s", rec.pk, rec.desc)
+            fh.write(s)
+        fh.flush()
+        os.fsync(fh.fileno())
+
+    def load(self, fh):
+        self.touch()
+        fh.seek(self.metablock.offset)
+        for rec in self.records:
+            (rec.pk, rec.desc) = struct.unpack("q56s", fh.read(64))
+        fh.flush()
+        os.fsync(fh.fileno())
+
+class LeafKey(object):
+    """
+    """
+
+    def __init__(self, blocknum, offset):
+        """
+        """
+        self.blocknum     = blocknum
+        self.offset       = offset
+        
+        self.pk           = 0
+        self.rid_blocknum = -1
+        self.rid_offset   = -1
+
+    def free(self):
+        return self.pk == 0
+        
 
 class LeafBlock(Block):
     """
@@ -99,46 +196,79 @@ class LeafBlock(Block):
         """
         Block.__init__(self, metablock)
         self.metablock.blocktype = BLOCKTYPE_LEAF
-        self.keys = []   # Rowids are ternary tuples (pk, blocknum, offset)
+        self.keys = tuple([LeafKey(metablock.blocknum, x)
+                           for x in xrange(MAXLEAFKEYS)])
 
+    def __len__(self):
+        return len(self.keys)
+        
     def flush(self, fh):
         if not self.metablock.wired:
             raise ValueError("flush on unwired block")
         
         fh.seek(self.metablock.offset)
-        for (pk, bnum, offset) in self.keys:
-            s = struct.pack("QHH", pk, bnum, offset)
+        for lk in self.keys:
+            s = struct.pack("QHH", lk.pk, lk.rid_blocknum, lk.rid_offset)
             fh.write(s)
         fh.flush()
-        os.fsync()
+        os.fsync(fh.fileno())
 
     def load(self, fh):
-        if self.metablock.wired:
-            raise ValueError("load on wired block")
-        if self.keys:
-            raise ValueError("Keys not empty")
-
+        self.touch()
         fh.seek(self.metablock.offset)
-        for _ in xrange(self.metablock.entries):
-            k = struct.unpack("QHH", fh.read())
-            self.keys.append(k)
+        for lk in self.keys:
+            (lk.pk, lk.rid_blocknum, lk.rid_offset) = struct.unpack("QHH", fh.read(12))
         fh.flush()
-        os.fsync()
+        os.fsync(fh.fileno())
 
-    
-class FileSys(object):
+    def full(self):
+        return self.nextfree() == None
+
+    def nextfree(self):
+        for lk in self.keys:
+            if lk.free():
+                return lk
+        return None
+            
+    def insert(self, rec):
+        # TODO CHECKS
+        lk              = self.nextfree()
+        lk.pk           = rec.pk
+        lk.rid_blocknum = rec.blocknum
+        lk.rid_offset   = rec.offset
+        
+class Sgbd(object):
     def __init__(self, fspath):
         self.fspath     = fspath
-        self.root       = None
         self.metablocks = [MetaBlock(x) for x in xrange(BLOCKNUM)]
         self.buffer     = []
+        
+        # FIXME
+        self.root           = self.metablocks[0]
+        self.root.blocktype = BLOCKTYPE_LEAF
         if not os.path.exists(self.fspath):
             if os.system("dd if=/dev/zero of={0} bs={1} count={2}".
                          format(self.fspath, BLOCKSIZE, BLOCKNUM)):
                 raise ValueError("dd error")
         # Open datafile, 4096bytes buf.
-        self.fsh = open(self.fspath, "wrb", BLOCKSIZE)
+        self.fsh = open(self.fspath, "r+b", BLOCKSIZE)
 
+    def fetch_block(self, blocknum):
+
+        # Lookup for block in buffer
+        for b in self.buffer:
+            if b.metablock.blocknum == blocknum:
+                b.touch()
+                return b
+        # Miss, we need to wire
+        # Fetch the metablock from blocknum
+        metablock = self.metablocks[blocknum]
+        
+        return self.wire(metablock)
+
+    def fetch_root(self):
+        return self.fetch_block(self.root.blocknum)
+    
     def wire(self, metablock):
         if metablock.wired:
             raise ValueError("Block already wired")
@@ -155,13 +285,13 @@ class FileSys(object):
             block = LeafBlock(metablock)
         # elif metablock.blocktype == BLOCKTYPE_BRANCH:
         #     block = BranchBlock(metablock)
-        # elif metablock.blocktype == BLOCKTYPE_RECORD:
-        #     block = RecordBlock(metablock)
+        elif metablock.blocktype == BLOCKTYPE_RECORD:
+            block = RecordBlock(metablock)
         else:
             raise ValueError("Unknown metablock.type {0}", metablock.blocktype)
         
-        metablock.wired = True
         self.buffer.append(block)
+        metablock.wired = True
         block.load(self.fsh)
         
         return block
@@ -197,3 +327,107 @@ class FileSys(object):
                 
         return victim
 
+    def fetch_freeblock(self, blocktype):
+        for b in self.buffer:
+            if b.metablock.blocktype != blocktype:
+                continue
+            if b.full():
+                continue
+            b.touch()
+            return b
+        # Try to alloc one
+        for mb in self.metablocks:
+            if mb.blocktype == None:
+                mb.blocktype = blocktype
+                b = self.wire(mb)
+                b.touch()
+                return b
+            
+        return None
+    
+    # def fetch_freerecord(self):
+    #     b = self.fetch_freeblock(BLOCKTYPE_RECORD)
+    #     if b.full():
+    #         raise ValueError("No more free records")
+    #     return b.nextfree()
+
+    def close(self):
+        for b in self.buffer[:]:
+            b.unwire()
+        self.fsh.close()
+        self.fsh = None
+        f = open(self.fspath + ".pickle", "w")
+        pickle.dump(self, f)
+        f.close()
+
+    def make_record(self, pk, desc):
+        b = self.fetch_freeblock(BLOCKTYPE_RECORD)
+        if not b:
+            raise ValueError("No more free record blocks")
+        rec = b.nextfree()
+        if not rec:
+            raise ValueError("No more free records")
+        rec.pk   = pk
+        rec.desc = desc
+        
+        return rec
+        
+    def find_leaf(self, pk):
+        # FIXME
+        return self.fetch_root()
+        
+        
+        
+    def record_insert(self, pk, desc="Default description"):
+        """
+        
+        Arguments:
+        - `self`:
+        - `pk`:
+        - `desc`:
+        """
+        # block = self.fetch_root()
+
+        # if block.full():
+        #     # TODO
+        #     raise ValueError("Bplus tree dance not implemented")
+        # if block.metablock.blocktype != BLOCKTYPE_LEAF:
+        #     # TODO
+        #     raise ValueError("Root must be leaf for now")
+
+        # rec = self.fetch_freerecord()
+        # if not rec:
+        #     raise ValueError("No free records in block")
+        # rec.pk   = pk
+        # rec.desc = desc
+
+        # # Link record to some leaf
+        # block.insert(rec)
+    
+        # New stuff
+        
+        # Make a new record
+        rec = self.make_record(pk, desc)
+        # Find the leaf to this record
+        leaf = self.find_leaf(pk)
+        # If we have room, go on and insert.
+        if not leaf.full():
+            leaf.insert(rec)
+        else:
+            raise ValueError("Unimplemented")
+            
+        
+"""
+Interactive interface functions, designed to be used withing python interactive
+interpreter.
+"""
+
+def record_insert(pk, desc="Default description"):
+    """
+    Insert a record with given key pk with description desc, desc should not be
+    longer than 56 bytes.
+    Arguments:
+    - `pk`: Integer, Primary key
+    - `desc`: String, Description
+    """
+    
