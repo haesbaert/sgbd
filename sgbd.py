@@ -170,6 +170,14 @@ class BranchBlock(Block):
     def __len__(self):
         return len(self.branches)
     
+    def __str__(self):
+        sl = ["BranchBlock ({0}) len: {1} full: {2}\n".format(
+                self.metablock.blocknum, len(self), str(self.full()))]
+        for r in self.keys:
+            sl.extend(["\t", str(r), "\n"])
+            
+        return ''.join(sl)
+    
     def nextfree(self):
         for x in self.allbranches:
             if x.free():
@@ -317,6 +325,14 @@ class LeafBlock(Block):
     def __len__(self):
         return len(self.keys)
         
+    def __str__(self):
+        sl = ["LeafBlock ({0}) len: {1} full: {2}\n".format(
+                self.metablock.blocknum, len(self), str(self.full()))]
+        for r in self.keys:
+            sl.extend(["\t", str(r), "\n"])
+            
+        return ''.join(sl)
+    
     def flush(self, fh):
         if not self.metablock.wired:
             raise ValueError("flush on unwired block")
@@ -392,7 +408,7 @@ class LeafBlock(Block):
 class Sgbd(object):
     def __init__(self, fspath):
         self.fspath     = fspath
-        self.metablocks = [MetaBlock(x) for x in xrange(BLOCKNUM)]
+        self.metablocks = tuple([MetaBlock(x) for x in xrange(BLOCKNUM)])
         self.buffer     = []
         
         # FIXME
