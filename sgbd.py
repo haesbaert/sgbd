@@ -47,10 +47,22 @@ class MetaBlock(object):
         - `blocknum`: integer Block number.
         """
         self.blocknum  = blocknum
-        self.free      = True
         self.blocktype = None
         self.wired     = False
         self.offset    = self.blocknum * BLOCKSIZE
+        
+    def __str__(self):
+        if self.blocktype == BLOCKTYPE_LEAF:
+            t = "Leaf"
+        elif self.blocktype == BLOCKTYPE_BRANCH:
+            t = "Branch"
+        elif self.blocktype == BLOCKTYPE_RECORD:
+            t = "Record"
+        else:
+            raise ValueError("Unexpected blocktype {0}".format(self.blocktype))
+        
+        return "Metablock: {0} ({1}) wired: {2} offset: {3}".format(
+            self.blocknum, t, self.wired, self.offset)
 
 
 class Block(object):
@@ -201,7 +213,6 @@ class BranchBlock(Block):
                 break
             pos = pos + 1
         self.branches.insert(pos, bk)
-
         
     
 class RecordBlock(Block):
