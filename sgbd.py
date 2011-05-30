@@ -130,6 +130,10 @@ class Record(object):
         self.pk       = 0
         self.desc     = "Default"
 
+    def __str__(self):
+        return "Record ({0},{1}) pk: {2} desc: {3}".format(
+            self.blocknum, self.offset, self.pk, self.desc)
+    
     def free(self):
         return self.pk == 0
     
