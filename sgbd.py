@@ -151,6 +151,10 @@ class BranchKey(object):
     def __cmp__(self, other):
         return cmp(self.pk, other.pk)
     
+    def __str__(self):
+        return "BranchKey ({0},{1}) pk: {2} child_blocknum: {3}".format(
+            self.blocknum, self.offset, self.pk, self.child_blocknum)
+    
     def free(self):
         return self.pk == 0
 
