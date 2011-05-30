@@ -374,7 +374,7 @@ class Sgbd(object):
 
     def close(self):
         for b in self.buffer[:]:
-            b.unwire()
+            self.unwire(b)
         self.fsh.close()
         self.fsh = None
         f = open(self.fspath + ".pickle", "w")
