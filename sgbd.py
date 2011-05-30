@@ -26,6 +26,7 @@ BLOCKNUM         = 8192
 BLOCKSIZE        = 4096
 DATAFILESIZE     = BLOCKNUM * BLOCKSIZE
 MAXBUFFERLEN     = 256
+MAXBRANCHES      = 400
 MAXLEAFKEYS      = 330
 MAXRECORDS       = 64
 KEYSIZE          = 12
@@ -120,6 +121,89 @@ class Record(object):
     def free(self):
         return self.pk == 0
     
+# TODO unify key code
+class BranchKey(object):
+    def __init__(self, blocknum, offset):
+        """
+        """
+        self.blocknum     = blocknum
+        self.offset       = offset
+        
+        self.pk             = 0
+        self.child_blocknum = -1
+
+    def __cmp__(self, other):
+        return cmp(self.pk, other.pk)
+    
+    def free(self):
+        return self.pk == 0
+
+    
+class BranchBlock(Block):
+    def __init__(self, metablock):
+        Block.__init__(self, metablock)
+        self.metablock.blocktype = BLOCKTYPE_BRANCH
+        self.allbranches = tuple([BranchKey(metablock.blocknum, x)
+                                  for x in xrange(MAXBRANCHES)])
+        self.branches = []
+
+    def __len__(self):
+        return len(self.branches)
+    
+    def nextfree(self):
+        for x in self.allbranches:
+            if x.free():
+                return x
+            
+        return None
+
+    def full(self):
+        return len(self.branches) == len(self.allbranches)
+
+    def load(self, fh):
+        self.touch()
+        fh.seek(self.metablock.offset)
+        for bk in self.allbranches:
+            (bk.pk, bk.child_blocknum) = struct.unpack("qH", fh.read(10))
+            if not bk.free():
+                self.insert(bk)
+            
+    def flush(self, fh):
+        if not self.metablock.wired:
+            raise ValueError("flush on unwired block")
+        fh.seek(self.metablock.offset)
+        for bk in self.branches:
+            s = struct.pack("qH", bk.pk, bk.child_blocknum)
+            fh.write(s)
+        fh.flush()
+        os.fsync(fh.fileno())
+        
+    def branchkey_from_leaf(self, leaf):
+        if self.full():
+            raise ValueError("Branch is full")
+        
+        bk = self.nextfree()
+        bk.pk             = leaf.keys[0].pk
+        if bk.pk == 0:
+            raise ValueError("Unexpected pk")
+        bk.child_blocknum = leaf.metablock.blocknum
+        
+        return bk
+
+    def insert(self, leaf):
+        if self.full():
+            raise ValueError("Branch is full")
+        
+        pos = 0
+        bk = self.branchkey_from_leaf(leaf)
+        for bkaux in self.branches:
+            if bkaux > bk:
+                break
+            pos = pos + 1
+        self.branches.insert(pos, bk)
+
+        
+    
 class RecordBlock(Block):
     """
     """
@@ -161,8 +245,7 @@ class RecordBlock(Block):
         fh.seek(self.metablock.offset)
         for rec in self.records:
             (rec.pk, rec.desc) = struct.unpack("q56s", fh.read(64))
-        fh.flush()
-        os.fsync(fh.fileno())
+        # FIXME
 
 class LeafKey(object):
     """
@@ -177,6 +260,7 @@ class LeafKey(object):
         self.pk           = 0
         self.rid_blocknum = -1
         self.rid_offset   = -1
+
         
     def __cmp__(self, other):
         return cmp(self.pk, other.pk)
@@ -224,8 +308,6 @@ class LeafBlock(Block):
             (lk.pk, lk.rid_blocknum, lk.rid_offset) = struct.unpack("QHH", fh.read(12))
             if not lk.free():
                 self.insert(lk)
-        fh.flush()
-        os.fsync(fh.fileno())
 
     def full(self):
         return len(self.keys) == len(self.allkeys)
@@ -236,6 +318,18 @@ class LeafBlock(Block):
                 return lk
         return None
 
+    def movekey(self, lk, other):
+        olk = other.nextfree()
+        olk.pk           = lk.pk
+        olk.rid_blocknum = lk.rid_blocknum
+        olk.rid_offset   = lk.rid_offset
+
+        lk.pk           = 0
+        lk.rid_blocknum = -1
+        lk.rid_offset   = -1
+        self.keys.remove(lk)
+        other.insert(olk)
+        
     def leafkey_from_rec(self, rec):
         lk              = self.nextfree()
         if lk is None:
@@ -246,12 +340,22 @@ class LeafBlock(Block):
         
         return lk
         
+    def lookup(self, pk):
+        lk = None
+
+        for lka in self.keys:
+            if lka.pk == pk:
+                lk = lka;
+        return lk
+
     def insert(self, rec):
+        if self.full():
+            raise ValueError("Leaf is full")
         pos = 0
 
         lk = self.leafkey_from_rec(rec)
         for lkaux in self.keys:
-            if lk < lkaux:
+            if lkaux > lk:
                 break
             pos = pos + 1
         self.keys.insert(pos, lk)
@@ -304,16 +408,17 @@ class Sgbd(object):
 
         if metablock.blocktype == BLOCKTYPE_LEAF:
             block = LeafBlock(metablock)
-        # elif metablock.blocktype == BLOCKTYPE_BRANCH:
-        #     block = BranchBlock(metablock)
+        elif metablock.blocktype == BLOCKTYPE_BRANCH:
+            block = BranchBlock(metablock)
         elif metablock.blocktype == BLOCKTYPE_RECORD:
             block = RecordBlock(metablock)
         else:
-            raise ValueError("Unknown metablock.type {0}", metablock.blocktype)
+            raise ValueError("Unknown metablock.blocktype {0}".format(metablock.blocktype))
         
         self.buffer.append(block)
         metablock.wired = True
         block.load(self.fsh)
+        block.touch()
         
         return block
         
@@ -348,15 +453,7 @@ class Sgbd(object):
                 
         return victim
 
-    def fetch_freeblock(self, blocktype):
-        for b in self.buffer:
-            if b.metablock.blocktype != blocktype:
-                continue
-            if b.full():
-                continue
-            b.touch()
-            return b
-        # Try to alloc one
+    def alloc_block(self, blocktype):
         for mb in self.metablocks:
             if mb.blocktype == None:
                 mb.blocktype = blocktype
@@ -365,6 +462,17 @@ class Sgbd(object):
                 return b
             
         return None
+        
+    def fetch_freeblock(self, blocktype):
+        for b in self.buffer:
+            if b.metablock.blocktype != blocktype:
+                continue
+            if b.full():
+                continue
+            b.touch()
+            return b
+        
+        return self.alloc_block(blocktype)
     
     # def fetch_freerecord(self):
     #     b = self.fetch_freeblock(BLOCKTYPE_RECORD)
@@ -394,10 +502,23 @@ class Sgbd(object):
         return rec
         
     def find_leaf(self, pk):
-        # FIXME
-        return self.fetch_root()
+        b = self.fetch_root()
+        if b.metablock.blocktype == BLOCKTYPE_LEAF:
+            return b
+        else: # TODO
+            raise ValueError("Unimplemented")
         
-    def record_insert(self, pk, desc="Default description"):
+    def lookup(self, pk):
+        # Find the leaf to this record
+        leaf = self.find_leaf(pk)
+
+        lk = leaf.lookup(pk)
+        if not lk:
+            return None
+        rb = self.fetch_block(lk.rid_blocknum)
+        return rb.records[lk.rid_offset]
+        
+    def insert(self, pk, desc="Default description"):
         """
         
         Arguments:
@@ -405,26 +526,9 @@ class Sgbd(object):
         - `pk`:
         - `desc`:
         """
-        # block = self.fetch_root()
-
-        # if block.full():
-        #     # TODO
-        #     raise ValueError("Bplus tree dance not implemented")
-        # if block.metablock.blocktype != BLOCKTYPE_LEAF:
-        #     # TODO
-        #     raise ValueError("Root must be leaf for now")
-
-        # rec = self.fetch_freerecord()
-        # if not rec:
-        #     raise ValueError("No free records in block")
-        # rec.pk   = pk
-        # rec.desc = desc
-
-        # # Link record to some leaf
-        # block.insert(rec)
-    
-        # New stuff
-        
+        # Avoid duplicates
+        if self.lookup(pk):
+            return None
         # Find the leaf to this record
         leaf = self.find_leaf(pk)
         # Make a new record
@@ -433,7 +537,21 @@ class Sgbd(object):
         if not leaf.full():
             leaf.insert(rec)
         else:
-            raise ValueError("Unimplemented")
+            # Get a new Leaf
+            newleaf = self.alloc_block(BLOCKTYPE_LEAF)
+            # Move the top half leafkeys to the new leaf
+            for lk in leaf.keys[len(leaf)/2:]:
+                leaf.movekey(lk, newleaf)
+                
+            # Our parent can only be root for now
+            # Split root
+            #parent = self.fetch_root()
+            newroot = self.alloc_block(BLOCKTYPE_BRANCH)
+            # Repoint root
+            self.root = newroot.metablock
+            # Link leafs in newroot
+            newroot.insert(leaf)
+            newroot.insert(newleaf)
         
         return leaf
             
