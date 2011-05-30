@@ -131,7 +131,7 @@ class Record(object):
         self.desc     = "Default"
 
     def __str__(self):
-        return "Record ({0},{1}) pk: {2} desc: {3}".format(
+        return "Record ({0},{1})\tpk: {2} desc: {3}".format(
             self.blocknum, self.offset, self.pk, self.desc)
     
     def free(self):
@@ -237,6 +237,14 @@ class RecordBlock(Block):
         
     def __len__(self):
         return len(self.records)
+    
+    def __str__(self):
+        sl = ["RecordBlock ({0}) len: {1} full: {2}\n".format(
+                self.metablock.blocknum, len(self), str(self.full()))]
+        for r in self.records:
+            sl.extend(["\t", str(r), "\n"])
+            
+        return ''.join(sl)
     
     def nextfree(self):
         for x in self.records:
