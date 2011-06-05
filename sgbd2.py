@@ -343,6 +343,7 @@ class RecordBlock(Block):
             if r.key == 0:
                 r.key  = key
                 r.desc = desc
+                self._refresh_fullness()
                 return r
             
         self._refresh_fullness()
