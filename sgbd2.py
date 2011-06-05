@@ -53,8 +53,6 @@ class DataFile(object):
         self.path = path
         # _blocks is a tuple of BLOCKNUM lists in the form [blocktype, full]
         self._blocks = tuple([[UNUSED, False, -1] for _ in xrange(BLOCKNUM)])
-        # Alloc an initial root leaf
-        self.root = self.alloc(LEAF)
         # Zerout datafile
         if os.system("dd if=/dev/zero of={0} bs={1} count={2}".
                      format(self.path, BLOCKSIZE, BLOCKNUM)):
@@ -133,15 +131,15 @@ class Buffer(object):
     """The Buffer cache, holds at most 256 frames(blocks)
     """
 
-    def __init__(self, datafile):
+    def __init__(self, path):
         """Constructor
         
         Arguments:
         - `self`:
-        - `datafile`: Backstorage for this Buffer, a DataFile object.
+        - `path`: Backstorage for this Buffer, a string.
         """
         self._frames   = []
-        self._datafile = datafile
+        self._datafile = DataFile(path)
 
     def full(self):
         """Check if buffer is full.
@@ -158,7 +156,7 @@ class Buffer(object):
         - `self`:
         - `blocktype`: Blocktype
         """
-        blocknum = self._datafile.alloc_block(blocktype)
+        blocknum = self._datafile.alloc(blocktype)
         return self.get_block(blocknum)
     
     def get_notfull(self, blocktype):
@@ -170,11 +168,9 @@ class Buffer(object):
         """
         bnum = self._datafile.get_notfull(blocktype)
         if bnum is None:
-            bnum = self.alloc(blocktype)
-        # If still None, we're fucked.
-        if bnum is None:
-            raise ValueError("No more notfull blocks of type {0}".format(
-                    blocktype))
+            return self.alloc(blocktype)
+        else:
+            return self.get_block(bnum)
         
     def get_block(self, blocknum):
         """Get the block referenced from blocknum, make a
@@ -187,13 +183,13 @@ class Buffer(object):
         # Search in our frames
         for b in self._frames:
             if blocknum == b.blocknum:
-                b.timestamp()
+                #b.timestamp()
                 return b
         # No luck, go down and fetch from datafile
         # Check if we need to swap someone
         if self.full():
             raise ValueError("Unimplemented")
-        (btype, _) = self._datafile.get_meta(blocknum)
+        (btype, _, _) = self._datafile.get_meta(blocknum)
         if btype == LEAF:
             b = LeafBlock(self, blocknum)
         elif btype == RECORD:
@@ -244,7 +240,7 @@ class Block(object):
         Arguments:
         - `self`:
         """
-        (_, fullness) = self._datafile.get_meta(self.blocknum)
+        (_, fullness, _) = self._datafile.get_meta(self.blocknum)
         return fullness
 
     
@@ -301,10 +297,10 @@ class Record(object):
         - `blocknum`: Block number
         - `offset`: Block offset
         """
-        self._blocknum = blocknum
-        self._offset   = offset
-        self.key       = 0
-        self.desc      = "Free"
+        self.blocknum = blocknum
+        self.offset   = offset
+        self.key      = 0
+        self.desc     = "Free"
         
 
 class RecordBlock(Block):
@@ -330,7 +326,7 @@ class RecordBlock(Block):
         full = True
         # Find at least one free record
         for r in self.records:
-            if r.pk == 0:
+            if r.key == 0:
                 full = False
                 break
             
@@ -360,14 +356,14 @@ class BplusTree(object):
     """A B+ Tree object, this where the shit happens.
     """
 
-    def __init__(self, buf):
+    def __init__(self, path):
         """Create a new BplusTree, needs a buf to fetch/store blocks
         
         Arguments:
-        - `buf`: A Buffer object
+        - `path`: Buffer storage path
         - `rootnum`: Number of root block
         """
-        self._buf    = buf
+        self._buf    = Buffer(path)
         root         = self._buf.alloc(LEAF)
         self.rootnum = root.blocknum
 
@@ -418,7 +414,7 @@ class BplusTree(object):
         """
         
         record = self.make_record(key, desc)
-        leafblock = self.search_leaf(record)
+        leafblock = self.search_leaf(record.key)
         # Yey ! leaf is not full
         if not leafblock.full():
             parent = leafblock.get_parent()
