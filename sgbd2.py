@@ -35,6 +35,7 @@ LEAF              = 1
 BRANCH            = 2
 RECORD            = 3
 
+
 class DataFile(object):
     """
     Lower-most class, represents a datafile and all information about blocks
@@ -127,6 +128,7 @@ class DataFile(object):
     
     # def setparent/getparent
     
+    
 class Buffer(object):
     """The Buffer cache, holds at most 256 frames(blocks)
     """
@@ -205,6 +207,7 @@ class Buffer(object):
         self._frames.append(b)
         return b
 
+    
 class Block(object):
     """Generic block class
     """
@@ -244,6 +247,7 @@ class Block(object):
         (_, fullness) = self._datafile.get_meta(self.blocknum)
         return fullness
 
+    
 class LeafBlock(Block):
     """A Leaf block.
     """
@@ -285,6 +289,7 @@ class LeafBlock(Block):
         self.keys.insert(pos, (record.blocknum, record.offset))
         self._refresh_fullness()
 
+        
 class Record(object):
     """A data record
     """
