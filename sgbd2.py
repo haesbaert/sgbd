@@ -78,7 +78,8 @@ class DataFile(object):
         raise ValueError("No more UNUSED blocks :-(")
         
     def get_meta(self, blocknum):
-        """Get the metadata for block blocknum. Returns a tuple like (type, fullness)
+        """Get the metadata for block blocknum.
+        Returns a tuple like (type, fullness)
         
         Arguments:
         - `self`:
