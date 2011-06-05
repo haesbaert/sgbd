@@ -59,7 +59,7 @@ class DataFile(object):
                      format(self.path, BLOCKSIZE, BLOCKNUM)):
             raise ValueError("dd error")
         # Open file
-        self.fh = open(self.fspath, "r+b", BLOCKSIZE)
+        self.fh = open(self.path, "r+b", BLOCKSIZE)
 
     def alloc(self, blocktype):
         """Alloc a bloc, fetch an UNUSED block and change it's block type,
@@ -166,14 +166,15 @@ class Buffer(object):
         - `self`:
         - `blocktype`: UNUSED, LEAF, RECORD, or BRANCH
         """
-        bnum = self._datafile.get_notfull(blocktype):
+        bnum = self._datafile.get_notfull(blocktype)
         if bnum is None:
             bnum = self.alloc(blocktype)
         # If still None, we're fucked.
         if bnum is None:
             raise ValueError("No more notfull blocks of type {0}".format(
                     blocktype))
-    def get_block(self, blocknum)
+        
+    def get_block(self, blocknum):
         """Get the block referenced from blocknum, make a
         victim if necessary, return the full, constructed block.
         
@@ -190,7 +191,7 @@ class Buffer(object):
         # Check if we need to swap someone
         if self.full():
             raise ValueError("Unimplemented")
-        (btype, fullness) = self._datafile.get_meta(blocknum)
+        (btype, _) = self._datafile.get_meta(blocknum)
         if btype == LEAF:
             b = LeafBlock(self, blocknum)
         elif btype == RECORD:
@@ -253,7 +254,7 @@ class LeafBlock(Block):
         - `buf`: A Buffer Object
         - `blocknum`: Blocknumber
         """
-        Block__init__(self, buf, blocknum, LEAF)
+        Block.__init__(self, buf, blocknum, LEAF)
     # XXX this is wong
     def _refresh_fullness(self):
         """Refresh fullness
@@ -275,7 +276,7 @@ class LeafBlock(Block):
             raise ValueError("Leaf is already full you dumbass !")
 
         pos = 0
-        for (key, _) in self.keys():
+        for (key, _) in self.keys:
             if key > record.key:
                 break
             pos = pos + 1
@@ -295,9 +296,9 @@ class Record(object):
         - `offset`: Block offset
         """
         self._blocknum = blocknum
-        self._offset = offset
-        sekf.key  = 0
-        self.desc = "Free"
+        self._offset   = offset
+        self.key       = 0
+        self.desc      = "Free"
         
 
 class RecordBlock(Block):
@@ -311,7 +312,7 @@ class RecordBlock(Block):
         - `buf`: A Buffer Object
         - `blocknum`: Blocknumber
         """
-        Block__init__(self, buf, blocknum, RECORD)
+        Block.__init__(self, buf, blocknum, RECORD)
         self.records = [Record(self.blocknum, x) for x in xrange(MAXRECORDS)]
         
     def _refresh_fullness(self):
@@ -355,7 +356,7 @@ class BplusTree(object):
     """A B+ Tree object, this where the shit happens.
     """
 
-    def __init__(self, buf, rootnum):
+    def __init__(self, buf):
         """Create a new BplusTree, needs a buf to fetch/store blocks
         
         Arguments:
@@ -381,14 +382,12 @@ class BplusTree(object):
         - `self`:
         - `key`: pk
         """
-        branch = None
-        leaf   = None
-        b      = self.get_root()
+        b = self.get_root()
 
         while b.blocktype != LEAF:
             for k in b.keys:
                 if key > k:
-                    b = self._buffer.get_block(b.pointers[k+1])
+                    b = self._buf.get_block(b.pointers[k+1])
                     break
 
         return b
@@ -402,7 +401,7 @@ class BplusTree(object):
         - `key`: Record key
         - `desc`: Record description
         """
-        b = self.get_notfull(RECORD)
+        b = self._buf.get_notfull(RECORD)
         return b.alloc(key, desc)
     
     def insert(self, key, desc):
