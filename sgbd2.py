@@ -255,7 +255,7 @@ class LeafBlock(Block):
         Block__init__(self, buf, blocknum, LEAF)
     # XXX this is wong
     def _refresh_fullness(self):
-        """Refresh fullness, type, fullness and parent
+        """Refresh fullness
         
         Arguments:
         - `self`:
@@ -282,8 +282,72 @@ class LeafBlock(Block):
         self.keys.insert(pos, (record.blocknum, record.offset))
         self._refresh_fullness()
 
-class RecordBlock(TODO)
-class BranchBlock(TODO)
+class Record(object):
+    """A data record
+    """
+
+    def __init__(self, blocknum, offset):
+        """Each record carries it's blocknum and offset
+        
+        Arguments:
+        - `blocknum`: Block number
+        - `offset`: Block offset
+        """
+        self._blocknum = blocknum
+        self._offset = offset
+        sekf.key  = 0
+        self.desc = "Free"
+        
+
+class RecordBlock(Block):
+    """A Record block, may contain up to 64 records
+    """
+
+    def __init__(self, buf, blocknum):
+        """Needs a buffer/datafile relation for metadata
+        
+        Arguments:
+        - `buf`: A Buffer Object
+        - `blocknum`: Blocknumber
+        """
+        Block__init__(self, buf, blocknum, RECORD)
+        self.records = [Record(self.blocknum, x) for x in xrange(MAXRECORDS)]
+        
+    def _refresh_fullness(self):
+        """Refresh fullness
+        
+        Arguments:
+        - `self`:
+        """
+        full = True
+        # Find at least one free record
+        for r in self.records:
+            if r.pk == 0:
+                full = False
+                break
+            
+        self._datafile.set_fullness(self.blocknum, full)
+
+    def alloc(self, key, desc):
+        """Alloc a new record on this RecordBlock, return the record.
+        
+        Arguments:
+        - `self`:
+        - `key`: Record key
+        - `desc`: Record desc
+        """
+        if self.full():
+            raise ValueError("RecordBlock already full !")
+        for r in self.records:
+            # If record is free...
+            if r.key == 0:
+                r.key  = key
+                r.desc = desc
+                return r
+            
+        self._refresh_fullness()
+
+# class BranchBlock(TODO)
 
 class BplusTree(object):
     """A B+ Tree object, this where the shit happens.
