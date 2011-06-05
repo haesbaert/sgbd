@@ -197,7 +197,8 @@ class Buffer(object):
         elif btype == RECORD:
             b = RecordBlock(self, blocknum)
         elif btype == BRANCH:
-            b = BranchBlock(self, blocknum)
+            raise ValueError("Unimplemented")
+            #b = BranchBlock(self, blocknum)
         else:
             raise ValueError("get_block on invalid blocktype: {0}".format(btype))
         # Place buffer in frame (wire)
@@ -350,8 +351,7 @@ class RecordBlock(Block):
             
         self._refresh_fullness()
 
-# class BranchBlock(TODO)
-
+        
 class BplusTree(object):
     """A B+ Tree object, this where the shit happens.
     """
