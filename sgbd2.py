@@ -348,8 +348,7 @@ class RecordBlock(Block):
                 r.desc = desc
                 self._refresh_fullness()
                 return r
-            
-        self._refresh_fullness()
+        raise ValueError("Should have found a free record")
 
         
 class BplusTree(object):
