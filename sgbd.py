@@ -544,17 +544,27 @@ class Sgbd(object):
         
         return rec
         
-    def find_leaf(self, pk):
+    def find_leaf(self, pk, insertion=False):
         b = self.fetch_root()
-        if b.metablock.blocktype == BLOCKTYPE_LEAF:
-            return b
-        else: # TODO
-            raise ValueError("Unimplemented")
         
+        while b.metablock.blocktype != BLOCKTYPE_LEAF:
+            if b.metablock.blocktype == BLOCKTYPE_RECORD:
+                raise ValueError("Unexpected blocktype record")
+            for br in b.branches:
+                if pk > br.pk:
+                    b = self.fetch_block(br.child_blocknum)
+                    break
+            if insertion:
+                return b
+            else:
+                return None
+        return b
+    
     def lookup(self, pk):
         # Find the leaf to this record
         leaf = self.find_leaf(pk)
-
+        if not leaf:
+            return None
         lk = leaf.lookup(pk)
         if not lk:
             return None
@@ -573,7 +583,7 @@ class Sgbd(object):
         if self.lookup(pk):
             return None
         # Find the leaf to this record
-        leaf = self.find_leaf(pk)
+        leaf = self.find_leaf(pk, insertion=True)
         # Make a new record
         rec = self.make_record(pk, desc)
         # If we have room, go on and insert.
