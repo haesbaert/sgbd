@@ -195,8 +195,7 @@ class Buffer(object):
         elif btype == RECORD:
             b = RecordBlock(self, blocknum)
         elif btype == BRANCH:
-            raise ValueError("Unimplemented")
-            #b = BranchBlock(self, blocknum)
+            b = BranchBlock(self, blocknum)
         else:
             raise ValueError("get_block on invalid blocktype: {0}".format(btype))
         # Place buffer in frame (wire)
@@ -220,9 +219,16 @@ class Block(object):
         self._datafile = buf._datafile
         self.blocknum  = blocknum
         self.blocktype = blocktype
-        self.keys      = []
-        # self.pointers  = []
 
+    def is_root(self):
+        """Check if this is the root block
+        
+        Arguments:
+        - `self`:
+        """
+        return self.get_parent() == None
+        
+        
     def get_parent(self):
         """Get parent block, may return None if root
         
@@ -235,7 +241,7 @@ class Block(object):
         return self._buffer.get_block(parentnum)
 
     def full(self):
-        """Checks if buffer is full
+        """Checks if block is full
         
         Arguments:
         - `self`:
@@ -244,6 +250,7 @@ class Block(object):
         return fullness
 
     
+# TODO unify keys/pointers into LeafBlock
 class LeafBlock(Block):
     """A Leaf block.
     """
@@ -256,6 +263,8 @@ class LeafBlock(Block):
         - `blocknum`: Blocknumber
         """
         Block.__init__(self, buf, blocknum, LEAF)
+        self.keys = []
+        
     # XXX this is wong
     def _refresh_fullness(self):
         """Refresh fullness
@@ -277,14 +286,93 @@ class LeafBlock(Block):
             raise ValueError("Leaf is already full you dumbass !")
 
         pos = 0
-        for (key, _) in self.keys:
-            if key > record.key:
+        for rec in self.keys:
+            if rec.key > record.key:
                 break
             pos = pos + 1
             
-        self.keys.insert(pos, (record.blocknum, record.offset))
+        self.keys.insert(pos, record)
         self._refresh_fullness()
 
+    def insert_split(self, record, newleaf):
+        """Split the records with rightleaf, top-half records will go to
+        newleaf.
+        
+        Arguments:
+        - `self`:
+        - `newleaf`: The new right(higher) leafblock.
+        """
+        # can only split an already full leaf
+        if not self.full():
+            raise ValueError("Trying to split leaf which isn't full!")
+        # Insert record to force a split
+        pos = 0
+        for rec in self.keys:
+            if rec.key > record.key:
+                break
+            pos = pos + 1
+            
+        self.keys.insert(pos, record)
+        # Do the splitting
+        for key in self.keys[len(self.keys)/2:]:
+            self.keys.remove(key)
+            newleaf.insert(key)
+            
+        self._refresh_fullness()
+        newleaf._refresh_fullness()
+        assert not self.full()
+        assert not newleaf.full()
+        # Return the middlekey
+        return newleaf.keys[0]
+
+class BranchBlock(Block):
+    """A Branch block.
+    """
+
+    def __init__(self, buf, blocknum):
+        """Needs a buffer/datafile relation for metadata
+        
+        Arguments:
+        - `buf`: A Buffer Object
+        - `blocknum`: Blocknumber
+        """
+        Block.__init__(self, buf, blocknum, BRANCH)
+        # Keys are keys (pk) :-).
+        self.keys     = []
+        # Pointers are blocknums, len(keys) == (len(pointers) + 1)
+        self.pointers = []
+        
+    def _refresh_fullness(self):
+        """Refresh fullness
+        
+        Arguments:
+        - `self`:
+        """
+        self._datafile.set_fullness(self.blocknum,
+                                    len(self.keys) == MAXBRANCHKEYS)
+        
+    def insert(self, leftblocknum, key, rightblocknum):
+        """Insert new leaf a pointers
+        
+        Arguments:
+        - `self`:
+        - `leftblocknum`: Pointer to left block
+        - `key`: The key, pk
+        - `rightblocknum`: Pointer to right block
+        """
+        if self.full():
+            raise ValueError("Branch is already full you dumbass !")
+        pos = 0
+        for k in self.keys:
+            if k > key:
+                break
+            pos = pos + 1
+            
+        self.keys.insert(pos, key)
+        self.pointers.insert(pos, leftblocknum)
+        self.pointers.insert(pos + 1, rightblocknum)
+        self._refresh_fullness()
+        
         
 class Record(object):
     """A data record
@@ -364,6 +452,7 @@ class BplusTree(object):
         - `rootnum`: Number of root block
         """
         self._buf    = Buffer(path)
+        # Make sure root is there.
         root         = self._buf.alloc(LEAF)
         self.rootnum = root.blocknum
 
@@ -385,13 +474,13 @@ class BplusTree(object):
         b = self.get_root()
 
         while b.blocktype != LEAF:
-            for k in b.keys:
+            for i, k in enumerate(b.keys):
                 if key > k:
-                    b = self._buf.get_block(b.pointers[k+1])
+                    b = self._buf.get_block(b.pointers[i+1])
                     break
 
         return b
-            
+
     def make_record(self, key, desc):
         """Allocate a new record from any not full recordblock, returns a
         Record object
@@ -415,15 +504,36 @@ class BplusTree(object):
         
         record = self.make_record(key, desc)
         leafblock = self.search_leaf(record.key)
-        # Yey ! leaf is not full
+        # Case 1: Yey ! leaf is not full
         if not leafblock.full():
-            parent = leafblock.get_parent()
-            # No parent, or parent not full, insert
-            if parent is None or parent.full():
-                leafblock.insert(record)
-                return
-            # So we have a parent and it's full :-(
-            raise ValueError("Unimplemented")
-        raise ValueError("Unimplemented")
+            leafblock.insert(record)
+            return
         
+        # Awww leaf is full :(
+        parent = leafblock.get_parent()
+        if not leafblock.is_root():
+                raise ValueError("Unimplemented")
+
+        # Case 2: Leaf is full, but parent isn't or root splitting
+        # Split the leaf, move top half to new leaf
+        newleafblock = self._buf.alloc(LEAF)
+        # Insert and split
+        middlekey = leafblock.insert_split(record, newleafblock)
+        # Root splitting
+        if leafblock.is_root():
+            # Alloc a new root
+            newroot = self._buf.alloc(BRANCH)
+            self.rootnum = newroot.blocknum
+            parent = newroot
+        else: # Only root splitting for now
+            raise ValueError("Unimplemented")
+            
+        # TODO
+        # leafblock.set_parent(parent)
+        # newleafblock.set_parent(parent)
+        parent.insert(leafblock.blocknum, middlekey.key,
+                       newleafblock.blocknum)
+        
+
+            
         
