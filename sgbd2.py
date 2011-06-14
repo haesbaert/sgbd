@@ -558,11 +558,8 @@ class BplusTree(object):
             newroot = self._buf.alloc(BRANCH)
             self.rootnum = newroot.blocknum
             indexblock = newroot
-        # else: # Only root splitting for now
-        #     raise ValueError("Unimplemented")
         # Finish case 2
         if not indexblock.full():
-            # TODO
             leafblock.set_parent(indexblock)
             newleafblock.set_parent(indexblock)
             indexblock.insert(leafblock.blocknum, leafmiddlekey.key,
@@ -571,8 +568,6 @@ class BplusTree(object):
             
         # Case 3, indexblock is also full
         # Will never fall here if Case 2, since indexblock won't be full.
-        # while indexblock.full():
-
         while indexblock and indexblock.full():
             # Alloc a new branchblock, will be the neighbour of our current
             # indexblock and will have the top-half keys of indexblock.
