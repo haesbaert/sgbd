@@ -123,10 +123,19 @@ class DataFile(object):
         """
         (_, _, parentnum) = self.get_meta(blocknum)
         return parentnum
-    
-    # def setparent/getparent
-    
-    
+
+    def set_parent(self, blocknum, pblocknum):
+        """Set the parent for blocknum
+        
+        Arguments:
+        - `self`:
+        - `blocknum`: Block number, 0-8191
+        - `pblocknum`: Parent block number, 0-8191
+        """
+        if blocknum < 1 or blocknum > 8191 or pblocknum < 1 or pblocknum > 8191:
+            self._blocks[blocknum][2] = pblocknum
+
+            
 class Buffer(object):
     """The Buffer cache, holds at most 256 frames(blocks)
     """
@@ -228,7 +237,6 @@ class Block(object):
         """
         return self.get_parent() == None
         
-        
     def get_parent(self):
         """Get parent block, may return None if root
         
@@ -240,6 +248,15 @@ class Block(object):
             return None
         return self._buffer.get_block(parentnum)
 
+    def set_parent(self, parentblock):
+        """Set parent block
+        
+        Arguments:
+        - `self`:
+        - `parentblock`: The parent block, must be a block object.
+        """
+        self._datafile.set_parent(self.blocknum, parentblock.blocknum)
+    
     def full(self):
         """Checks if block is full
         
@@ -372,7 +389,23 @@ class BranchBlock(Block):
         self.pointers.insert(pos, leftblocknum)
         self.pointers.insert(pos + 1, rightblocknum)
         self._refresh_fullness()
+
+    def split(self, otherbranchblock):
+        """Move the top-half keys/pointers to the otherblock, return the middle key
         
+        Arguments:
+        - `self`:
+        - `otherbranchblock`:
+        """
+        # Can only split an already full branch
+        if not self.full():
+            raise ValueError("Trying to split branch which isn't full!")
+
+        # Do the splitting
+        for key in self.keys[len(self.keys)/2:]:
+            self.keys.remove(key)
+            otherbranchblock.insert(key)
+            
         
 class Record(object):
     """A data record
@@ -510,29 +543,88 @@ class BplusTree(object):
             return
         
         # Awww leaf is full :(
-        parent = leafblock.get_parent()
+        indexblock = leafblock.get_parent()
         if not leafblock.is_root():
-                raise ValueError("Unimplemented")
+            raise ValueError("Unimplemented")
 
         # Case 2: Leaf is full, but parent isn't or root splitting
         # Split the leaf, move top half to new leaf
         newleafblock = self._buf.alloc(LEAF)
         # Insert and split
-        middlekey = leafblock.insert_split(record, newleafblock)
+        leafmiddlekey = leafblock.insert_split(record, newleafblock)
         # Root splitting
         if leafblock.is_root():
             # Alloc a new root
             newroot = self._buf.alloc(BRANCH)
             self.rootnum = newroot.blocknum
-            parent = newroot
-        else: # Only root splitting for now
-            raise ValueError("Unimplemented")
+            indexblock = newroot
+        # else: # Only root splitting for now
+        #     raise ValueError("Unimplemented")
+        # Finish case 2
+        if not indexblock.full():
+            # TODO
+            leafblock.set_parent(indexblock)
+            newleafblock.set_parent(indexblock)
+            indexblock.insert(leafblock.blocknum, leafmiddlekey.key,
+                              newleafblock.blocknum)
+            return
             
-        # TODO
-        # leafblock.set_parent(parent)
-        # newleafblock.set_parent(parent)
-        parent.insert(leafblock.blocknum, middlekey.key,
-                       newleafblock.blocknum)
+        # Case 3, indexblock is also full
+        # Will never fall here if Case 2, since indexblock won't be full.
+        # while indexblock.full():
+
+        while indexblock and indexblock.full():
+            # Alloc a new branchblock, will be the neighbour of our current
+            # indexblock and will have the top-half keys of indexblock.
+            newindexblock = self._buf.alloc(BRANCH)
+            # Insert the leaf key into indexblock (which is full) and force a
+            # splitting, after the call, newindexblock should have the top-half
+            # keys of indexblock, the middlekey is the first key of
+            # newindexblock.
+            middlekey = indexblock.insert_split(leafblock.blocknum,
+                                                leafmiddlekey,
+                                                newleafblock.blocknum,
+                                                newindexblock)
+            # Now we do not know if leafblock is in indexblock or
+            # newindexblock, we don't care
+
+            # We must now insert the middle key in the upperindex (parent),
+            # with pointers to indexblock and newindexblock, if there is no
+            # parent, we get a new root.
+            upperindexblock = indexblock.get_parent()
+            # upperindexblock is the parent of our current index.
+            if upperindexblock is None:
+                # Root splitting
+                # Alloc a new root
+                newroot = self._buf.alloc(BRANCH)
+                self.rootnum = newroot.blocknum
+                upperindexblock = newroot
+
+            # Now link the fucking branches
+            upperindexblock.insert(indexblock.blocknum, middlekey,
+                                   newindexblock.blocknum)
+            indexblock.set_parent(upperindexblock)
+            newindexblock.set_parent(newindexblock)
+            # Go up
+            indexblock = indexblock.get_parent()
+
+            # We should have the following
+"""
+           _________________
+          /                 \
+          | upperindexblock |
+          \_________________/
+            /              \
+           /                \
+          /                  \
+         /                    \
+       _/_______________       \_________________             
+      /                 \      /                 \
+      |  indexblock     |      | newindexblock   |
+      \_________________/      \_________________/
+
+"""
+        # End of case 3
         
 
             
