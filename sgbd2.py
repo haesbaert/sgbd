@@ -197,7 +197,14 @@ class Buffer(object):
         # No luck, go down and fetch from datafile
         # Check if we need to swap someone
         if self.full():
-            raise ValueError("Unimplemented")
+            victim = self._frames[0]
+            for b in self._frames:
+                if b.timestamp < victim.timestamp:
+                    victim = b
+            victim.flush()
+            self._frames.remove(victim)
+            if self.full():
+                raise ValueError("Still full !")
         (btype, _, _) = self._datafile.get_meta(blocknum)
         if btype == LEAF:
             b = LeafBlock(self, blocknum)
@@ -266,6 +273,14 @@ class Block(object):
         (_, fullness, _) = self._datafile.get_meta(self.blocknum)
         return fullness
 
+    def flush(self):
+        """Flush this block, abstract
+        
+        Arguments:
+        - `self`:
+        """
+        raise ValueError("Unimplemented")
+        
     
 # TODO unify keys/pointers into LeafBlock
 class LeafBlock(Block):
@@ -281,6 +296,8 @@ class LeafBlock(Block):
         """
         Block.__init__(self, buf, blocknum, LEAF)
         self.keys = []
+        
+        # TODO load from stuff from file.
         
     # XXX this is wong
     def _refresh_fullness(self):
