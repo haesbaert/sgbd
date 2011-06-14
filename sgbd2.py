@@ -273,6 +273,14 @@ class Block(object):
         (_, fullness, _) = self._datafile.get_meta(self.blocknum)
         return fullness
 
+    def touch(self):
+        """Update the block timestamp, used to victimize.
+        
+        Arguments:
+        - `self`:
+        """
+        self.timestamp = time.time()
+    
     def flush(self):
         """Flush this block, abstract
         
