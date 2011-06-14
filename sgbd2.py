@@ -192,7 +192,7 @@ class Buffer(object):
         # Search in our frames
         for b in self._frames:
             if blocknum == b.blocknum:
-                #b.timestamp()
+                b.touch()
                 return b
         # No luck, go down and fetch from datafile
         # Check if we need to swap someone
@@ -216,6 +216,7 @@ class Buffer(object):
             raise ValueError("get_block on invalid blocktype: {0}".format(btype))
         # Place buffer in frame (wire)
         self._frames.append(b)
+        b.touch()
         return b
 
     
@@ -235,6 +236,7 @@ class Block(object):
         self._datafile = buf._datafile
         self.blocknum  = blocknum
         self.blocktype = blocktype
+        self.timestamp = self.touch()
 
     def is_root(self):
         """Check if this is the root block
@@ -280,6 +282,7 @@ class Block(object):
         - `self`:
         """
         self.timestamp = time.time()
+        return self.timestamp
     
     def flush(self):
         """Flush this block, abstract
