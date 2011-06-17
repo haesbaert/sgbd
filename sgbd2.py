@@ -293,6 +293,14 @@ class Block(object):
         """
         raise ValueError("Unimplemented")
         
+    def offset(self):
+        """Get block disc offset
+         
+        Arguments:
+        - `self`:
+        """
+        return self.blocknum * BLOCKSIZE    
+    
     
 class LeafBlock(Block):
     """A Leaf block.
