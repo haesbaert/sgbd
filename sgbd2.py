@@ -20,6 +20,7 @@ import time
 import struct
 import pickle
 import sys
+import types
 
 BLOCKNUM          = 8192
 BLOCKSIZE         = 4096
@@ -306,7 +307,8 @@ class LeafBlock(Block):
         - `blocknum`: Blocknumber
         """
         Block.__init__(self, buf, blocknum, LEAF)
-        self.keys = []
+        self.keys     = []
+        self.pointers = []
         
         # TODO load from stuff from file.
         
@@ -320,26 +322,32 @@ class LeafBlock(Block):
         self._datafile.set_fullness(self.blocknum,
                                     len(self.keys) == MAXLEAFKEYS)
 
-    def insert(self, record):
+    def insert(self, key, pointer):
         """Insert a record, leaf MUST NOT be full.
         
         Arguments:
         - `self`: 
-        - `record`: record to insert.
+        - `rowid`: rowid to insert.
         """
+        if type(key) is not types.IntType:
+            raise TypeError("Key not an integer")
+        if type(pointer) is not types.TupleType:
+            raise TypeError("Pointer not a tuple")
+        
         if self.full():
             raise ValueError("Leaf is already full you dumbass !")
 
         pos = 0
-        for rec in self.keys:
-            if rec.key > record.key:
+        for k in self.keys:
+            if k > key:
                 break
             pos = pos + 1
             
-        self.keys.insert(pos, record)
+        self.keys.insert(pos, key)
+        self.pointers.insert(pos, pointer)
         self._refresh_fullness()
 
-    def insert_split(self, record, newleaf):
+    def insert_split(self, key, pointer, newleaf):
         """Split the records with rightleaf, top-half records will go to
         newleaf.
         
@@ -347,28 +355,35 @@ class LeafBlock(Block):
         - `self`:
         - `newleaf`: The new right(higher) leafblock.
         """
+        if type(key) is not types.IntType:
+            raise TypeError("Key not an integer")
+        if type(pointer) is not types.TupleType:
+            raise TypeError("Pointer not a tuple")
         # can only split an already full leaf
         if not self.full():
             raise ValueError("Trying to split leaf which isn't full!")
         # Insert record to force a split
         pos = 0
-        for rec in self.keys:
-            if rec.key > record.key:
+        for k in self.keys:
+            if k > key:
                 break
             pos = pos + 1
             
-        self.keys.insert(pos, record)
+        self.keys.insert(pos, key)
+        self.pointers.insert(pos, pointer)
+        
         # Do the splitting
-        for key in self.keys[len(self.keys)/2:]:
+        for i, key in enumerate(self.keys[len(self.keys)/2:]):
             self.keys.remove(key)
-            newleaf.insert(key)
+            p = self.pointers.pop(i)
+            newleaf.insert(key, p)
             
         self._refresh_fullness()
         newleaf._refresh_fullness()
         assert not self.full()
         assert not newleaf.full()
-        # Return the middlekey
-        return newleaf.keys[0]
+        # Return the middlekey and middle pointer
+        return newleaf.keys[0], newleaf.pointers[0]
 
 class BranchBlock(Block):
     """A Branch block.
@@ -562,12 +577,14 @@ class BplusTree(object):
         - `key`: Record key
         - `desc`: Record desc
         """
-        
-        record = self.make_record(key, desc)
-        leafblock = self.search_leaf(record.key)
+
+        r = self.make_record(key, desc)
+        rec_key = r.key
+        rec_pointer = (r.blocknum, r.offset)
+        leafblock = self.search_leaf(rec_key)
         # Case 1: Yey ! leaf is not full
         if not leafblock.full():
-            leafblock.insert(record)
+            leafblock.insert(rec_key, rec_pointer)
             return
         
         # Awww leaf is full :(
@@ -579,7 +596,8 @@ class BplusTree(object):
         # Split the leaf, move top half to new leaf
         newleafblock = self._buf.alloc(LEAF)
         # Insert and split
-        leafmiddlekey = leafblock.insert_split(record, newleafblock)
+        leafmiddlekey, leafmiddlepointer = \
+            leafblock.insert_split(rec_key, rec_pointer, newleafblock)
         # Root splitting
         if leafblock.is_root():
             # Alloc a new root
@@ -590,7 +608,7 @@ class BplusTree(object):
         if not indexblock.full():
             leafblock.set_parent(indexblock)
             newleafblock.set_parent(indexblock)
-            indexblock.insert(leafblock.blocknum, leafmiddlekey.key,
+            indexblock.insert(leafblock.blocknum, leafmiddlekey, 
                               newleafblock.blocknum)
             return
             
