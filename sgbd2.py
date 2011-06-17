@@ -294,7 +294,6 @@ class Block(object):
         raise ValueError("Unimplemented")
         
     
-# TODO unify keys/pointers into LeafBlock
 class LeafBlock(Block):
     """A Leaf block.
     """
