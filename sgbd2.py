@@ -133,8 +133,9 @@ class DataFile(object):
         - `blocknum`: Block number, 0-8191
         - `pblocknum`: Parent block number, 0-8191
         """
-        if blocknum < 1 or blocknum > 8191 or pblocknum < 1 or pblocknum > 8191:
-            self._blocks[blocknum][2] = pblocknum
+        print("set_parent {0} {1}".format(blocknum, pblocknum))
+        #if blocknum < 1 or blocknum > 8191 or pblocknum < 1 or pblocknum > 8191:
+        self._blocks[blocknum][2] = pblocknum
 
             
 class Buffer(object):
@@ -479,7 +480,6 @@ class BranchBlock(Block):
             if k > key:
                 break
             pos = pos + 1
-            
         self.keys.insert(pos, key)
         self.pointers.insert(pos, leftblocknum)
         self.pointers.insert(pos + 1, rightblocknum)
@@ -655,7 +655,9 @@ class BplusTree(object):
         - `key`: Record key
         - `desc`: Record desc
         """
-
+        # Avoid double insert
+        if self.lookup(key):
+            return None
         r = self.make_record(key, desc)
         rec_key = r.key
         rec_pointer = (r.blocknum, r.offset)
@@ -667,8 +669,6 @@ class BplusTree(object):
         
         # Awww leaf is full :(
         indexblock = leafblock.get_parent()
-        if not leafblock.is_root():
-            raise ValueError("Unimplemented")
 
         # Case 2: Leaf is full, but parent isn't or root splitting
         # Split the leaf, move top half to new leaf
@@ -676,12 +676,13 @@ class BplusTree(object):
         # Insert and split
         leafmiddlekey, leafmiddlepointer = \
             leafblock.insert_split(rec_key, rec_pointer, newleafblock)
-        # Root splitting
+        # Leaf Root splitting
         if leafblock.is_root():
             # Alloc a new root
             newroot = self._buf.alloc(BRANCH)
             self.rootnum = newroot.blocknum
             indexblock = newroot
+            leafblock.set_parent(indexblock)
         # Finish case 2
         if not indexblock.full():
             leafblock.set_parent(indexblock)
