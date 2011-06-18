@@ -425,11 +425,11 @@ class LeafBlock(Block):
         self.pointers.insert(pos, pointer)
         
         # Do the splitting
-        for i, key in enumerate(self.keys[len(self.keys)/2:]):
-            self.keys.remove(key)
-            p = self.pointers.pop(i)
-            newleaf.insert(key, p)
-            
+        for i in xrange(0, len(self.keys)/2 + 1):
+            k = self.keys.pop()
+            p = self.pointers.pop()
+            newleaf.insert(k, p)
+        
         self._refresh_fullness()
         newleaf._refresh_fullness()
         assert not self.full()
@@ -602,10 +602,13 @@ class BplusTree(object):
         b = self.get_root()
 
         while b.blocktype != LEAF:
-            for i, k in enumerate(b.keys):
-                if key > k:
-                    b = self._buf.get_block(b.pointers[i+1])
+            pos = 0
+            for k in b.keys:
+                if key >= k:
+                    pos = pos + 1
+                else:
                     break
+            b = self._buf.get_block(b.pointers[pos])
 
         return b
 
@@ -620,6 +623,29 @@ class BplusTree(object):
         """
         b = self._buf.get_notfull(RECORD)
         return b.alloc(key, desc)
+
+    def lookup(self, key):
+        """Lookup for a given record.
+        
+        Arguments:
+        - `self`:
+        - `key`: record key (pk)
+        """
+        # Get the leaf
+        leaf = self.search_leaf(key)
+        if not leaf:
+            return None
+        # Get the record pointer
+        p = None
+        for i, k in enumerate(leaf.keys):
+            if k == key:
+                p = leaf.pointers[i]
+                break
+        if p is None:
+            return None
+        # Get the record block and return the record.
+        rb = self._buf.get_block(p[0])
+        return rb.records[p[1]]
     
     def insert(self, key, desc):
         """Insert a record into bplustree, handles all cases
@@ -718,7 +744,7 @@ class BplusTree(object):
 
 """
         # End of case 3
-        
+
 
             
         
