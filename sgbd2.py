@@ -293,8 +293,16 @@ class Block(object):
         """
         raise ValueError("Unimplemented")
         
+    def load(self):
+        """load this block, abstract
+        
+        Arguments:
+        - `self`:
+        """
+        raise ValueError("Unimplemented")
+    
     def offset(self):
-        """Get block disc offset
+        """Get block disk offset
          
         Arguments:
         - `self`:
@@ -316,9 +324,46 @@ class LeafBlock(Block):
         Block.__init__(self, buf, blocknum, LEAF)
         self.keys     = []
         self.pointers = []
+        self.load()
         
-        # TODO load from stuff from file.
+    def load(self):
+        """Load keys and pointers from disk.
         
+        Arguments:
+        - `self`:
+        """
+        if self.keys or self.pointers:
+            raise ValueError("keys and pointers must be empty")
+        self._refresh_fullness()
+        fh = self._datafile.fh
+        fh.seek(self.offset())
+        for _ in xrange(MAXLEAFKEYS):
+            k, pb, po = struct.unpack("QHH", fh.read(12))
+            if k == 0:
+                continue
+            self.insert(k, (pb, po))
+        self._refresh_fullness()
+
+    def flush(self):
+        """Flush keys and pointers to disk.
+        
+        Arguments:
+        - `self`:
+        """
+        fh = self._datafile.fh
+        fh.seek(self.offset())
+        # XXX use BLOCKSIZE instead of 4096
+        fh.write(struct.pack("4096s", "0"))
+        fh.seek(self.offset())
+        for i, k in enumerate(self.keys):
+            p = self.pointers[i]
+            s = struct.pack("QHH", k, p[0], p[1])
+            fh.write(s)
+        fh.flush()
+        os.fsync(fh.fileno())
+        self.keys = []
+        self.pointers = []
+    
     # XXX this is wong
     def _refresh_fullness(self):
         """Refresh fullness
