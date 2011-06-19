@@ -355,7 +355,7 @@ class LeafBlock(Block):
         # XXX use BLOCKSIZE instead of 4096
         fh.write(struct.pack("4096s", "0"))
         fh.seek(self.offset())
-        for k in self.keys:
+        for i, k in enumerate(self.keys):
             p = self.pointers[i]
             s = struct.pack("QHH", k, p[0], p[1])
             fh.write(s)
