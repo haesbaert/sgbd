@@ -133,7 +133,6 @@ class DataFile(object):
         - `blocknum`: Block number, 0-8191
         - `pblocknum`: Parent block number, 0-8191
         """
-        print("set_parent {0} {1}".format(blocknum, pblocknum))
         #if blocknum < 1 or blocknum > 8191 or pblocknum < 1 or pblocknum > 8191:
         self._blocks[blocknum][2] = pblocknum
 
@@ -356,7 +355,7 @@ class LeafBlock(Block):
         # XXX use BLOCKSIZE instead of 4096
         fh.write(struct.pack("4096s", "0"))
         fh.seek(self.offset())
-        for i, k in enumerate(self.keys):
+        for k in self.keys:
             p = self.pointers[i]
             s = struct.pack("QHH", k, p[0], p[1])
             fh.write(s)
@@ -426,7 +425,7 @@ class LeafBlock(Block):
         self.pointers.insert(pos, pointer)
         
         # Do the splitting
-        for i in xrange(0, len(self.keys)/2 + 1):
+        for _ in xrange(0, len(self.keys)/2 + 1):
             k = self.keys.pop()
             p = self.pointers.pop()
             newleaf.insert(k, p)
@@ -485,22 +484,72 @@ class BranchBlock(Block):
         self.pointers.insert(pos + 1, rightblocknum)
         self._refresh_fullness()
 
-    def split(self, otherbranchblock):
-        """Move the top-half keys/pointers to the otherblock, return the middle key
+    def insert_split(self, lleaf, leafmiddlekey, rleaf, newindex):
+        """
         
         Arguments:
         - `self`:
-        - `otherbranchblock`:
         """
-        # Can only split an already full branch
-        if not self.full():
-            raise ValueError("Trying to split branch which isn't full!")
 
+        # leafmiddlekey = 85
+        # lleaf = 75,80
+        # rleaf = 85,90,95...
+        # INSERE O LEAFMIDDLE-KEY, AE FAZ O SPLIT, DEPOIS VE ONDE TA O MIDDLEKEY E
+        #SETA O RLEAF PARENT PRA ONDE TA O MIDDLE-KEY
+        
+        pos = 0
+        for k in self.keys:
+            if k > leafmiddlekey:
+                break
+            pos = pos + 1
+        self.keys.insert(pos, leafmiddlekey)
+        self.pointers.insert(pos, lleaf.blocknum)
+        self.pointers.insert(pos + 1, rleaf.blocknum)
+        
+        #self.pointers.insert(pos, pointer)
         # Do the splitting
-        for key in self.keys[len(self.keys)/2:]:
-            self.keys.remove(key)
-            otherbranchblock.insert(key)
+        for _ in xrange(0, len(self.keys)/2 + 1):
+            k = self.keys.pop()
+            p = self.pointers.pop()
+            newindex.insert(p, k, self.pointers[0])
+
+        middlekey = newindex.keys.pop(0)
+        self._refresh_fullness()
+        newindex._refresh_fullness()
+
+        if lleaf.blocknum in self.pointers:
+            print("left leaf {0} in self {1}".format(lleaf.blocknum, self.blocknum))
+        else:
+            print("left leaf {0} in newindex {1}".format(lleaf.blocknum, newindex.blocknum))
             
+        if rleaf.blocknum in self.pointers:
+            print("left leaf {0} in self {1}".format(rleaf.blocknum, self.blocknum))
+        else:
+            print("left leaf {0} in newindex {1}".format(rleaf.blocknum, newindex.blocknum))
+        
+        # # Search leafmiddlekey to fix parent pointer
+        # if leafmiddlekey in self.keys:
+        #     rleaf.set_parent(self)
+        # elif leafmiddlekey in newindex.keys:
+        #     rleaf.set_parent(newindex)
+        # else:
+        #     raise ValueError("Fudeu")
+        
+        return middlekey, (self.blocknum, newindex.blocknum)
+        
+        
+        # middlekey_pos = len(self.keys)/2
+        # middlekey = self.keys.pop(middlekey_pos)
+        # # Do the splitting
+        # for i in xrange(0, middlekey_pos - 1):
+        #     k = self.keys.pop(middlekey_pos)
+        #     newindex.keys.append(k)
+        #     # #p = self.pointers.pop()
+        #     # newleaf.insert(k, p)
+
+
+        # return middlekey
+    
         
 class Record(object):
     """A data record
@@ -567,6 +616,43 @@ class RecordBlock(Block):
                 return r
         raise ValueError("Should have found a free record")
 
+    def load(self):
+        """Load keys and pointers from disk.
+        
+        Arguments:
+        - `self`:
+        """
+        if self.records:
+            raise ValueError("records must be empty")
+        self._refresh_fullness()
+        fh = self._datafile.fh
+        fh.seek(self.offset())
+        for x in xrange(MAXRECORDS):
+            k, desc = struct.unpack("Q56s", fh.read(64))
+            r = Record(self.blocknum, x)
+            r.key = k
+            r.desc = desc.split('\x00')[0]
+            self.records.append(r)
+        self._refresh_fullness()
+
+    def flush(self):
+        """Flush keys and pointers to disk.
+        
+        Arguments:
+        - `self`:
+        """
+        fh = self._datafile.fh
+        fh.seek(self.offset())
+        # XXX use BLOCKSIZE instead of 4096
+        fh.write(struct.pack("4096s", "0"))
+        fh.seek(self.offset())
+        for r in self.records:
+            s = struct.pack("Q56s", r.key, r.desc)
+            fh.write(s)
+        fh.flush()
+        os.fsync(fh.fileno())
+        self.records = []
+        
         
 class BplusTree(object):
     """A B+ Tree object, this where the shit happens.
@@ -701,10 +787,11 @@ class BplusTree(object):
             # splitting, after the call, newindexblock should have the top-half
             # keys of indexblock, the middlekey is the first key of
             # newindexblock.
-            middlekey = indexblock.insert_split(leafblock.blocknum,
+            middlekey = indexblock.insert_split(leafblock,
                                                 leafmiddlekey,
-                                                newleafblock.blocknum,
+                                                newleafblock,
                                                 newindexblock)
+            
             # Now we do not know if leafblock is in indexblock or
             # newindexblock, we don't care
 
