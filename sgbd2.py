@@ -580,7 +580,8 @@ class RecordBlock(Block):
         - `blocknum`: Blocknumber
         """
         Block.__init__(self, buf, blocknum, RECORD)
-        self.records = [Record(self.blocknum, x) for x in xrange(MAXRECORDS)]
+        self.records = []
+        self.load()
         
     def _refresh_fullness(self):
         """Refresh fullness
@@ -741,6 +742,7 @@ class BplusTree(object):
         - `key`: Record key
         - `desc`: Record desc
         """
+        print("inserting {0}".format(key))
         # Avoid double insert
         if self.lookup(key):
             return None
