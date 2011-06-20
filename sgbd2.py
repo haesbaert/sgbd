@@ -456,6 +456,7 @@ class BranchBlock(Block):
         self.keys     = []
         # Pointers are blocknums, len(keys) == (len(pointers) + 1)
         self.pointers = []
+        self.load()
         
     def _refresh_fullness(self):
         """Refresh fullness
@@ -539,9 +540,9 @@ class BranchBlock(Block):
             self.pointers.append(leftblocknum)
             self.pointers.append(rightblocknum)
         else:
-            if self.pointers[pos] != leftblocknum:
-                raise ValueError("Deu merda {0} {1}".format(
-                        self.pointers[pos], leftblocknum))
+            # if self.pointers[pos] != leftblocknum:
+            #     raise ValueError("Deu merda {0} {1}".format(
+            #             self.pointers[pos], leftblocknum))
             self.pointers.insert(pos + 1, rightblocknum)
 
         self._refresh_fullness()
@@ -562,9 +563,9 @@ class BranchBlock(Block):
             self.pointers.append(leftblocknum)
             self.pointers.append(rightblocknum)
         else:
-            if self.pointers[pos] != leftblocknum:
-                raise ValueError("Deu merda {0} {1}".format(
-                        self.pointers[pos], leftblocknum))
+            # if self.pointers[pos] != leftblocknum:
+            #     raise ValueError("Deu merda {0} {1}".format(
+            #             self.pointers[pos], leftblocknum))
             self.pointers.insert(pos + 1, rightblocknum)
 
         print (self.keys)
@@ -815,10 +816,27 @@ class BplusTree(object):
         - `rootnum`: Number of root block
         """
         self._buf    = Buffer(path)
+        self.path    = path
         # Make sure root is there.
         root         = self._buf.alloc(LEAF)
         self.rootnum = root.blocknum
 
+    def close(self):
+        """Save all state to disk
+        
+        Arguments:
+        - `self`:
+        """
+        for b in self._buf._frames:
+            b.flush()
+        f = open(self._buf._datafile.path + ".pickle", "w")
+        self._buf._frames = []
+        self._buf._datafile.fh.close()
+        self._buf._datafile.fh = None
+        pickle.dump(self, f)
+        f.close()
+        del self
+    
     def get_root(self):
         """Fetch root block
         
@@ -990,3 +1008,15 @@ class BplusTree(object):
 
             
         
+def load_from_file(path):
+    """Load a BplusTree from file and return it
+    
+    Arguments:
+    - `path`: file path
+    """
+    f = open(path, "r+b")
+    bp = pickle.load(f)
+    f.close()
+    bp._buf._datafile.fh = open(bp._buf._datafile.path, "r+b", BLOCKSIZE)
+
+    return bp
