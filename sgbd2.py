@@ -618,7 +618,7 @@ class RecordBlock(Block):
         raise ValueError("Should have found a free record")
 
     def load(self):
-        """Load keys and pointers from disk.
+        """Load records from disk.
         
         Arguments:
         - `self`:
@@ -637,7 +637,7 @@ class RecordBlock(Block):
         self._refresh_fullness()
 
     def flush(self):
-        """Flush keys and pointers to disk.
+        """Flush records.
         
         Arguments:
         - `self`:
