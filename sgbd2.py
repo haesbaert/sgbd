@@ -834,7 +834,7 @@ class BplusTree(object):
         - `self`:
         - `n`: Number of random registers
         """
-        for x in xrange(1, n):
+        for x in xrange(1, n + 1):
             k = random.randrange(1, 4000000)
             self.insert(k, "Descricao {0}".format(k))
     
