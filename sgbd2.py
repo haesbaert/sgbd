@@ -567,6 +567,8 @@ class BranchBlock(Block):
             #     raise ValueError("Deu merda {0} {1}".format(
             #             self.pointers[pos], leftblocknum))
             self.pointers.insert(pos + 1, rightblocknum)
+            self.pointers[pos] = leftblocknum
+            #self.pointers.insert(pos + 1, rightblocknum)
 
         print (self.keys)
         print (self.pointers)
@@ -899,6 +901,20 @@ class BplusTree(object):
         # Get the record block and return the record.
         rb = self._buf.get_block(p[0])
         return rb.records[p[1]]
+
+    def update(self, key, desc):
+        """Update a record of key to new desc
+        
+        Arguments:
+        - `self`:
+        - `key`: Key of record
+        - `desc`: New description of record
+        """
+        rec = self.lookup(key)
+        if not rec:
+            return None
+        rec.desc = desc
+        return rec
     
     def insert(self, key, desc):
         """Insert a record into bplustree, handles all cases
