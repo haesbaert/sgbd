@@ -21,6 +21,7 @@ import struct
 import pickle
 import sys
 import types
+import random
 
 BLOCKNUM          = 8192
 BLOCKSIZE         = 4096
@@ -825,6 +826,17 @@ class BplusTree(object):
         - `self`:
         """
         return self._buf.get_block(self.rootnum)
+
+    def randomize(self, n):
+        """Insert n random registers
+        
+        Arguments:
+        - `self`:
+        - `n`: Number of random registers
+        """
+        for x in xrange(1, n):
+            k = random.randrange(1, 4000000)
+            self.insert(k, "Descricao {0}".format(k))
     
     def search_leaf(self, key):
         """Search the leaf given a key insertion.
@@ -902,7 +914,7 @@ class BplusTree(object):
         - `key`: Key of record
         - `desc`: New description of record
         """
-        rec = self.lookup(key)
+        rec      = self.lookup(key)
         if not rec:
             return None
         rec.desc = desc
@@ -922,10 +934,10 @@ class BplusTree(object):
         # Avoid double insert
         if self.lookup(key):
             return None
-        r = self.make_record(key, desc)
-        rec_key = r.key
+        r           = self.make_record(key, desc)
+        rec_key     = r.key
         rec_pointer = (r.blocknum, r.offset)
-        leafblock = self.search_leaf(rec_key)
+        leafblock   = self.search_leaf(rec_key)
         # Case 1: Yey ! leaf is not full
         if not leafblock.full():
             leafblock.insert(rec_key, rec_pointer)
@@ -936,16 +948,16 @@ class BplusTree(object):
 
         # Case 2: Leaf is full, but parent isn't or root splitting
         # Split the leaf, move top half to new leaf
-        newleafblock = self._buf.alloc(LEAF)
+        newleafblock                     = self._buf.alloc(LEAF)
         # Insert and split
         leafmiddlekey, leafmiddlepointer = \
             leafblock.insert_split(rec_key, rec_pointer, newleafblock)
         # Leaf Root splitting
         if leafblock.is_root():
             # Alloc a new root
-            newroot = self._buf.alloc(BRANCH)
-            self.rootnum = newroot.blocknum
-            indexblock = newroot
+            newroot                      = self._buf.alloc(BRANCH)
+            self.rootnum                 = newroot.blocknum
+            indexblock                   = newroot
             leafblock.set_parent(indexblock)
         # Finish case 2
         if not indexblock.full():
@@ -960,7 +972,7 @@ class BplusTree(object):
 #         while indexblock and indexblock.full():
 #             # Alloc a new branchblock, will be the neighbour of our current
 #             # indexblock and will have the top-half keys of indexblock.
-#             newindexblock = self._buf.alloc(BRANCH)
+#             newindexblock            = self._buf.alloc(BRANCH)
 #             # Insert the leaf key into indexblock (which is full) and force a
 #             # splitting, after the call, newindexblock should have the top-half
 #             # keys of indexblock, the middlekey is the first key of
@@ -976,13 +988,13 @@ class BplusTree(object):
 #             # We must now insert the middle key in the upperindex (parent),
 #             # with pointers to indexblock and newindexblock, if there is no
 #             # parent, we get a new root.
-#             upperindexblock = indexblock.get_parent()
+#             upperindexblock     = indexblock.get_parent()
 #             # upperindexblock is the parent of our current index.
 #             if upperindexblock is None:
 #                 # Root splitting
 #                 # Alloc a new root
-#                 newroot = self._buf.alloc(BRANCH)
-#                 self.rootnum = newroot.blocknum
+#                 newroot         = self._buf.alloc(BRANCH)
+#                 self.rootnum    = newroot.blocknum
 #                 upperindexblock = newroot
 
 #             # Now link the fucking branches
@@ -996,24 +1008,21 @@ class BplusTree(object):
 #             # We should have the following
 # """
 #            _________________
-#           /                 \
+#           /                      \
 #           | upperindexblock |
 #           \_________________/
-#             /              \
-#            /                \
-#           /                  \
-#          /                    \
+#             /                    \
+#            /                     \
+#           /                      \
+#          /                       \
 #        _/_______________       \_________________             
-#       /                 \      /                 \
+#       /                 \      / \
 #       |  indexblock     |      | newindexblock   |
 #       \_________________/      \_________________/
 
 # """
 #         # End of case 3
 
-
-            
-        
 def load_from_file(path):
     """Load a BplusTree from file and return the object
     
