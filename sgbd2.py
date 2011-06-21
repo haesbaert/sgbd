@@ -830,10 +830,11 @@ class BplusTree(object):
         Arguments:
         - `self`:
         """
-        for b in self._buf._frames:
+        for i in self._buf._frames:
+            b = self._buf._frames[i]
             b.flush()
         f = open(self._buf._datafile.path + ".pickle", "w")
-        self._buf._frames = []
+        self._buf._frames = {}
         self._buf._datafile.fh.close()
         self._buf._datafile.fh = None
         pickle.dump(self, f)
