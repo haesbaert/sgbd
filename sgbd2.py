@@ -27,11 +27,8 @@ BLOCKSIZE         = 4096
 DATAFILESIZE      = BLOCKNUM * BLOCKSIZE
 MAXBUFFERLEN      = 256
 MAXBRANCHKEYS     = 400
-#MAXBRANCHKEYS     = 4
-
 MAXBRANCHPOINTERS = MAXBRANCHKEYS + 1
 MAXLEAFKEYS       = 330
-#MAXLEAFKEYS       = 4
 MAXLEAFPOINTERS   = MAXLEAFKEYS + 1
 MAXRECORDS        = 64
 UNUSED            = 0
@@ -507,26 +504,6 @@ class BranchBlock(Block):
             self.new_insert(l, k, r)
         self._refresh_fullness()
 
-    # def get_left_index(left_blocknum):
-    #     for left_index, p in enumerate(self.pointers):
-    #         if p == left_blocknum:
-    #             return left_index
-            
-    #     raise ValueError("get_left_index {0} {1}".
-    #                      format(self.blocknum, left_blocknum))
-                         
-    # def insert_into_parent(self, left, key, right):
-    #     parent = left.get_parent()
-
-    #     # TODO ROOT
-
-    #     left_index = parent.get_left_index(left.blocknum)
-    #     self.insert_into_node(left_index, key, right)
-        
-    # def insert_into_node(self, left_index, key, right):
-    #     for i in enumerate(self.keys):
-    #         self.pointers[i + 1] = self.pointers[i]
-    #         self.keys[i] = self.
     def new_insert(self, leftblocknum, key, rightblocknum):
         if self.full():
             raise ValueError("Branch is already full you dumbass !")
@@ -881,6 +858,19 @@ class BplusTree(object):
         b = self._buf.get_notfull(RECORD)
         return b.alloc(key, desc)
 
+    def lookup_pprint(self, key):
+        """Lookup with pretty printing :-)
+        
+        Arguments:
+        - `self`:
+        - `key`: Record key to be looked up
+        """
+        r = self.lookup(key)
+        if not r:
+            print("Record {0}".format(key))
+        else:
+            print("Record {0} => {1}".format(r.key, r.desc))
+        
     def lookup(self, key):
         """Lookup for a given record.
         
@@ -926,6 +916,8 @@ class BplusTree(object):
         - `key`: Record key
         - `desc`: Record desc
         """
+        if key < 1:
+            raise ValueError("Invalid key !!")
         print("inserting {0}".format(key))
         # Avoid double insert
         if self.lookup(key):
@@ -959,75 +951,71 @@ class BplusTree(object):
         if not indexblock.full():
             leafblock.set_parent(indexblock)
             newleafblock.set_parent(indexblock)
-            # indexblock.insert(leafblock.blocknum, leafmiddlekey, 
-            #                   newleafblock.blocknum)
             indexblock.new_insert(leafblock.blocknum, leafmiddlekey, 
                                  newleafblock.blocknum)
             return
             
-        # Case 3, indexblock is also full
-        # Will never fall here if Case 2, since indexblock won't be full.
-        print("case 3")
-        raise ValueError("Unimplemented")
-        while indexblock and indexblock.full():
-            # Alloc a new branchblock, will be the neighbour of our current
-            # indexblock and will have the top-half keys of indexblock.
-            newindexblock = self._buf.alloc(BRANCH)
-            # Insert the leaf key into indexblock (which is full) and force a
-            # splitting, after the call, newindexblock should have the top-half
-            # keys of indexblock, the middlekey is the first key of
-            # newindexblock.
-            middlekey, middlepointer = indexblock.new_insert_split(leafblock.blocknum,
-                                                    leafmiddlekey,
-                                                    newleafblock.blocknum,
-                                                    newindexblock)
+        raise ValueError("Shouldn't reach here")
+    
+#         while indexblock and indexblock.full():
+#             # Alloc a new branchblock, will be the neighbour of our current
+#             # indexblock and will have the top-half keys of indexblock.
+#             newindexblock = self._buf.alloc(BRANCH)
+#             # Insert the leaf key into indexblock (which is full) and force a
+#             # splitting, after the call, newindexblock should have the top-half
+#             # keys of indexblock, the middlekey is the first key of
+#             # newindexblock.
+#             middlekey, middlepointer = indexblock.new_insert_split(leafblock.blocknum,
+#                                                     leafmiddlekey,
+#                                                     newleafblock.blocknum,
+#                                                     newindexblock)
             
-            # Now we do not know if leafblock is in indexblock or
-            # newindexblock, we don't care
+#             # Now we do not know if leafblock is in indexblock or
+#             # newindexblock, we don't care
 
-            # We must now insert the middle key in the upperindex (parent),
-            # with pointers to indexblock and newindexblock, if there is no
-            # parent, we get a new root.
-            upperindexblock = indexblock.get_parent()
-            # upperindexblock is the parent of our current index.
-            if upperindexblock is None:
-                # Root splitting
-                # Alloc a new root
-                newroot = self._buf.alloc(BRANCH)
-                self.rootnum = newroot.blocknum
-                upperindexblock = newroot
+#             # We must now insert the middle key in the upperindex (parent),
+#             # with pointers to indexblock and newindexblock, if there is no
+#             # parent, we get a new root.
+#             upperindexblock = indexblock.get_parent()
+#             # upperindexblock is the parent of our current index.
+#             if upperindexblock is None:
+#                 # Root splitting
+#                 # Alloc a new root
+#                 newroot = self._buf.alloc(BRANCH)
+#                 self.rootnum = newroot.blocknum
+#                 upperindexblock = newroot
 
-            # Now link the fucking branches
-            upperindexblock.new_insert(indexblock.blocknum, middlekey,
-                                   middlepointer)
-            indexblock.set_parent(upperindexblock)
-            # Go up
-            indexblock = indexblock.get_parent()
-            print("upperindex = {0}".format(upperindexblock.blocknum))
-            break
-            # We should have the following
-"""
-           _________________
-          /                 \
-          | upperindexblock |
-          \_________________/
-            /              \
-           /                \
-          /                  \
-         /                    \
-       _/_______________       \_________________             
-      /                 \      /                 \
-      |  indexblock     |      | newindexblock   |
-      \_________________/      \_________________/
+#             # Now link the fucking branches
+#             upperindexblock.new_insert(indexblock.blocknum, middlekey,
+#                                    middlepointer)
+#             indexblock.set_parent(upperindexblock)
+#             # Go up
+#             indexblock = indexblock.get_parent()
+#             print("upperindex = {0}".format(upperindexblock.blocknum))
+#             break
+#             # We should have the following
+# """
+#            _________________
+#           /                 \
+#           | upperindexblock |
+#           \_________________/
+#             /              \
+#            /                \
+#           /                  \
+#          /                    \
+#        _/_______________       \_________________             
+#       /                 \      /                 \
+#       |  indexblock     |      | newindexblock   |
+#       \_________________/      \_________________/
 
-"""
-        # End of case 3
+# """
+#         # End of case 3
 
 
             
         
 def load_from_file(path):
-    """Load a BplusTree from file and return it
+    """Load a BplusTree from file and return the object
     
     Arguments:
     - `path`: file path
