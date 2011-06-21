@@ -151,7 +151,8 @@ class Buffer(object):
         - `self`:
         - `path`: Backstorage for this Buffer, a string.
         """
-        self._frames   = []
+        # self._frames   = []
+        self._frames = {}
         self._datafile = DataFile(path)
 
     def full(self):
@@ -193,20 +194,20 @@ class Buffer(object):
         - `self`:
         - `blocknum`: block number
         """
-        # Search in our frames
-        for b in self._frames:
-            if blocknum == b.blocknum:
-                b.touch()
-                return b
-        # No luck, go down and fetch from datafile
-        # Check if we need to swap someone
+        
+        if self._frames.has_key(blocknum):
+            b = self._frames[blocknum]
+            b.touch()
+            return b
+        
         if self.full():
-            victim = self._frames[0]
-            for b in self._frames:
+            victim = self._frames[self._frames.keys()[0]]
+            for i in self._frames:
+                b = self._frames[i]
                 if b.timestamp < victim.timestamp:
                     victim = b
             victim.flush()
-            self._frames.remove(victim)
+            self._frames.pop(victim.blocknum)
             if self.full():
                 raise ValueError("Still full !")
         (btype, _, _) = self._datafile.get_meta(blocknum)
@@ -219,7 +220,7 @@ class Buffer(object):
         else:
             raise ValueError("get_block on invalid blocktype: {0}".format(btype))
         # Place buffer in frame (wire)
-        self._frames.append(b)
+        self._frames[blocknum] = b
         b.touch()
         return b
 
